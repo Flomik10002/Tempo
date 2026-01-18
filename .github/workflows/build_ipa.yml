@@ -1,0 +1,45 @@
+name: Build Raw IPA
+
+on:
+  push:
+    branches: [ "main", "dev", "feature/**" ]
+
+jobs:
+  build-ipa:
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.1"
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Xcode version
+        run: |
+          xcodebuild -version
+          ls /Applications | grep Xcode
+
+
+      - name: Build iOS .app (unsigned)
+        run: flutter build ios --release --no-codesign
+
+      - name: Create IPA
+        run: |
+          cd build/ios/iphoneos
+          mkdir Payload
+          app_name=$(ls | grep ".app$")
+          mv "$app_name" Payload/
+          zip -r app-unsigned.ipa Payload
+          rm -rf Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned
+          path: build/ios/iphoneos/app-unsigned.ipa
