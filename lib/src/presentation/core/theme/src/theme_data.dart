@@ -1,0 +1,24 @@
+import 'package:flutter/material.dart';
+
+class $LightThemeData {
+  ThemeData call() {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+    );
+  }
+}
+
+class $DarkThemeData {
+  ThemeData call() {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Colors.blue, 
+        brightness: Brightness.dark,
+      ),
+    );
+  }
+}
