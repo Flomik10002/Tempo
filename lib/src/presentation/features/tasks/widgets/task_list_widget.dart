@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+import 'package:tempo/src/data/database/drift_database.dart' hide ActivityType;
 import 'package:tempo/src/presentation/features/tasks/providers/tasks_provider.dart';
 import 'package:tempo/src/presentation/features/tasks/widgets/task_card_widget.dart';
 

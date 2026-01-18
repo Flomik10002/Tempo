@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+import 'package:tempo/src/data/database/drift_database.dart' hide ActivityType;
+import 'package:tempo/src/domain/entities/activity_type.dart';
 import 'package:tempo/src/presentation/core/theme/tempo_colors.dart'; // Надо будет создать или использовать hardcoded цвета пока
 
 class SessionSegmentWidget extends StatelessWidget {

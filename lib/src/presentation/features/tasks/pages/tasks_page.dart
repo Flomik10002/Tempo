@@ -1,7 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors; // For minimal fallbacks
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+import 'package:tempo/src/data/database/drift_database.dart' hide ActivityType;
 import 'package:tempo/src/presentation/core/widgets/tempo_design_system.dart';
 import 'package:tempo/src/presentation/features/tasks/dialogs/task_editor_dialog.dart';
 import 'package:tempo/src/presentation/features/tasks/widgets/task_list_widget.dart';

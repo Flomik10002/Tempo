@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+import 'package:tempo/src/data/database/drift_database.dart' hide ActivityType;
+import 'package:tempo/src/domain/entities/activity_type.dart';
 import 'package:tempo/src/presentation/features/home/providers/activity_types_provider.dart';
 import 'package:tempo/src/presentation/features/home/providers/current_session_provider.dart';
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+import 'package:tempo/src/data/database/drift_database.dart' hide ActivityType;
 import 'package:tempo/src/presentation/features/calendar/providers/calendar_view_state.dart';
 import 'package:tempo/src/presentation/features/calendar/providers/session_list_provider.dart';
 import 'package:tempo/src/presentation/features/calendar/widgets/day_timeline_widget.dart';

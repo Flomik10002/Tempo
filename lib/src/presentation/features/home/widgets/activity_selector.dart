@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+import 'package:tempo/src/data/database/drift_database.dart' hide ActivityType;
+import 'package:tempo/src/domain/entities/activity_type.dart';
 
 /// Селектор активностей для быстрого старта/переключения
 class ActivitySelector extends StatelessWidget {

@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tempo/src/core/di/parts/repository_providers.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+import 'package:tempo/src/data/database/drift_database.dart' hide ActivityType;
 
 /// Provider для активной сессии (Stream)
 final currentSessionProvider = StreamProvider<Session?>((ref) {

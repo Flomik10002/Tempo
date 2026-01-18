@@ -3,7 +3,7 @@ import 'package:flutter/material.dart' show Colors, Icons, Dismissible, DismissD
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:tempo/src/core/di/parts/use_case_providers.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+import 'package:tempo/src/data/database/drift_database.dart' hide ActivityType;
 import 'package:tempo/src/data/models/task_extensions.dart';
 import 'package:tempo/src/presentation/core/widgets/tempo_design_system.dart';
 

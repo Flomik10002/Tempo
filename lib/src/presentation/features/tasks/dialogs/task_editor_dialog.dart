@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:tempo/src/core/di/parts/use_case_providers.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+import 'package:tempo/src/data/database/drift_database.dart' hide ActivityType;
 import 'package:tempo/src/data/models/task_extensions.dart';
 import 'package:tempo/src/domain/entities/repeat_rule.dart';
 import 'package:tempo/src/presentation/features/tasks/widgets/repeat_rule_selector.dart';

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+import 'package:tempo/src/data/database/drift_database.dart' hide ActivityType;
 import 'package:tempo/src/presentation/features/calendar/widgets/session_segment_widget.dart';
 
 class DayTimelineWidget extends StatelessWidget {
