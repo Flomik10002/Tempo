@@ -20,11 +20,13 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
+      - name: Run build_runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
       - name: Xcode version
         run: |
           xcodebuild -version
           ls /Applications | grep Xcode
-
 
       - name: Build iOS .app (unsigned)
         run: flutter build ios --release --no-codesign
