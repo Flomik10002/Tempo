@@ -14,7 +14,10 @@ class CreateActivityTypeUseCase {
     // Repo takes ActivityType.
     // I need uuid generator.
     final id = DateTime.now().millisecondsSinceEpoch.toString(); // Simple ID for now
-    final activity = ActivityType(id: id, name: name, color: color, position: 0); // Position handled by repo?
-    await _repository.addActivityType(activity);
+    await _repository.createActivityType(
+      name: name,
+      color: color,
+      order: 0, // Default order
+    );
   }
 }

@@ -3,8 +3,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cupertino_native/cupertino_native.dart';
 
+import 'package:tempo/src/domain/entities/activity_type.dart';
+
 import 'package:tempo/src/core/di/parts/use_case_providers.dart';
-import 'package:tempo/src/data/database/drift_database.dart';
+// import 'package:tempo/src/data/database/drift_database.dart'; // Removed to avoid conflict
 import 'package:tempo/src/presentation/core/theme/theme_provider.dart';
 import 'package:tempo/src/presentation/core/widgets/tempo_design_system.dart';
 import 'package:tempo/src/presentation/features/home/providers/activity_types_provider.dart';
@@ -32,7 +34,7 @@ class HomePage extends ConsumerWidget {
       navigationBar: CupertinoNavigationBar(
          middle: const Text('Tempo'),
          trailing: CNPopupMenuButton(
-            child: const Icon(CupertinoIcons.ellipsis_circle),
+            // child: const Icon(CupertinoIcons.ellipsis_circle), // Removed child
             items: [
               const CNPopupMenuItem(label: 'Add Activity', icon: CNSymbol('plus')),
               const CNPopupMenuItem(label: 'Manage Activities', icon: CNSymbol('list.bullet')),

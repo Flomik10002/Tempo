@@ -90,7 +90,7 @@ class _ActivityEditorDialogState extends ConsumerState<ActivityEditorDialog> {
               ],
             ),
           ),
-          const Divider(height: 1),
+          Container(height: 1, color: CupertinoColors.separator),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(20),
