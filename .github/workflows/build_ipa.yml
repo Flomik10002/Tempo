@@ -20,23 +20,28 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Run build_runner
+      - name: Run Code Generation
         run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+          cd ..
 
       - name: Xcode version
         run: |
           xcodebuild -version
-          ls /Applications | grep Xcode
 
       - name: Build iOS .app (unsigned)
-        run: flutter build ios --release --no-codesign
+        run: flutter build ios --release --no-codesign --no-tree-shake-icons
 
       - name: Create IPA
         run: |
           cd build/ios/iphoneos
           mkdir Payload
-          app_name=$(ls | grep ".app$")
-          mv "$app_name" Payload/
+          # Ищем именно Runner.app, так надежнее
+          mv Runner.app Payload/
           zip -r app-unsigned.ipa Payload
           rm -rf Payload
 
