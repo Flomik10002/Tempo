@@ -1,4 +1,4 @@
-import 'package:tempo/src/domain/entities/activity_type.dart';
+import 'package:tempo/src/data/database/drift_database.dart';
 
 /// Интерфейс репозитория для работы с типами активности
 abstract class ActivityTypeRepository {

@@ -34,7 +34,7 @@ class HomePage extends ConsumerWidget {
       navigationBar: CupertinoNavigationBar(
          middle: const Text('Tempo'),
          trailing: CNPopupMenuButton(
-            // child: const Icon(CupertinoIcons.ellipsis_circle), // Removed child
+            buttonLabel: '',
             items: [
               const CNPopupMenuItem(label: 'Add Activity', icon: CNSymbol('plus')),
               const CNPopupMenuItem(label: 'Manage Activities', icon: CNSymbol('list.bullet')),
