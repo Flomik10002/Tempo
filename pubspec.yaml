@@ -1,71 +1,39 @@
 name: tempo
-description: "Activity tracking and task management app."
+description: "Minimalist productivity app."
 publish_to: 'none'
-
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.10.0
+  sdk: '>=3.2.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  # UI
+
+  # UI & Utils
   cupertino_icons: ^1.0.6
-  gap: ^3.0.1
-  flutter_colorpicker: ^1.0.3
-  table_calendar: ^3.0.9
-  # State management
-  flutter_riverpod: ^2.5.1
-  # Navigation
-  go_router: ^17.0.1
-  # Cache & Database
-  shared_preferences: ^2.3.1
-  drift: ^2.19.0
-  sqlite3_flutter_libs: ^0.5.0
-  path_provider: ^2.1.0
-  path: ^1.9.0
-  # Generator and Annotations
-  riverpod_annotation: ^2.3.5
-  freezed_annotation: ^3.0.0
-  # Media
-  flutter_svg: ^2.0.10+1
-  # Logging
-  logger: ^2.4.0
-  # Serialization & Deserialization
-  dart_mappable:
-  # Localization
-  flutter_localizations:
-    sdk: flutter
-  intl: ^0.20.2
-  # Notifications
-  flutter_local_notifications: ^17.0.0
-  cupertino_native: ^0.1.1
+  gap: ^3.0.0         # Удобные отступы
+  intl: ^0.19.0       # Форматирование дат
+
+  # State Management
+  flutter_riverpod: ^2.4.9
+  riverpod_annotation: ^2.3.3
+
+  # Database (Local SQL)
+  drift: ^2.14.0
+  sqlite3_flutter_libs: ^0.5.18 # Важно для стабильности на iOS/Android!
+  path_provider: ^2.1.2
+  path: ^1.8.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^3.0.0
 
-  flutter_lints: ^6.0.0
-  build_runner:
-  custom_lint:
-  flutter_guardian:
-   path: packages/flutter_guardian/
-  riverpod_generator:
-  riverpod_lint:
-  flutter_gen_runner:
-  dart_mappable_builder:
-  freezed: ^3.0.6
-  drift_dev: ^2.19.0
+  # Code Generation
+  build_runner: ^2.4.8
+  drift_dev: ^2.14.0
+  riverpod_generator: ^2.3.3
 
 flutter:
-  uses-material-design: true
-  generate: true
-
-
-flutter_gen:
-  output: lib/src/presentation/core/gen
-  line_length: 80
-
-  integrations:
-    flutter_svg: true
+  uses-material-design: false
