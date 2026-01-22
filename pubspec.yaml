@@ -1,5 +1,5 @@
 name: tempo
-description: "Minimalist productivity app."
+description: "Activity tracking and task management app."
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -10,18 +10,20 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # UI & Utils
+  # UI
+  cupertino_native: ^0.1.1       # Liquid Glass UI
   cupertino_icons: ^1.0.6
-  gap: ^3.0.0         # Удобные отступы
-  intl: ^0.19.0       # Форматирование дат
+  gap: ^3.0.0
+  intl: ^0.19.0
+  glass: ^2.0.0+2                  # Хелпер для размытия фона (Glassmorphism)
 
   # State Management
   flutter_riverpod: ^2.4.9
   riverpod_annotation: ^2.3.3
 
-  # Database (Local SQL)
+  # Database
   drift: ^2.14.0
-  sqlite3_flutter_libs: ^0.5.18 # Важно для стабильности на iOS/Android!
+  sqlite3_flutter_libs: ^0.5.18  # Критично для iOS!
   path_provider: ^2.1.2
   path: ^1.8.3
 
@@ -36,4 +38,4 @@ dev_dependencies:
   riverpod_generator: ^2.3.3
 
 flutter:
-  uses-material-design: false
+  uses-material-design: true # Нужно для некоторых фолбеков
