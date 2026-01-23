@@ -11,7 +11,7 @@ part 'database.g.dart';
 class Activities extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text()();
-  TextColumn get color => text()(); // Hex
+  TextColumn get color => text()(); // Hex 0xFF...
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
 }
 
@@ -26,6 +26,7 @@ class Tasks extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get title => text()();
   BoolColumn get isCompleted => boolean().withDefault(const Constant(false))();
+  BoolColumn get isRepeating => boolean().withDefault(const Constant(false))(); // New
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get dueDate => dateTime().nullable()();
 }
@@ -43,28 +44,11 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (Migrator m) async {
       await m.createAll();
-
       // Seed data
-      await into(activities).insert(ActivitiesCompanion.insert(
-          name: 'Coding',
-          color: '0xFF007AFF', // Blue
-          sortOrder: const Value(0)
-      ));
-      await into(activities).insert(ActivitiesCompanion.insert(
-          name: 'Design',
-          color: '0xFFAF52DE', // Purple
-          sortOrder: const Value(1)
-      ));
-      await into(activities).insert(ActivitiesCompanion.insert(
-          name: 'Sport',
-          color: '0xFF34C759', // Green
-          sortOrder: const Value(2)
-      ));
-      await into(activities).insert(ActivitiesCompanion.insert(
-          name: 'Rest',
-          color: '0xFFFF9500', // Orange
-          sortOrder: const Value(3)
-      ));
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Coding', color: '0xFF007AFF', sortOrder: const Value(0)));
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Design', color: '0xFFAF52DE', sortOrder: const Value(1)));
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Sport', color: '0xFF34C759', sortOrder: const Value(2)));
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Rest', color: '0xFFFF9500', sortOrder: const Value(3)));
     },
   );
 }
@@ -72,8 +56,7 @@ class AppDatabase extends _$AppDatabase {
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dbFolder = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dbFolder.path, 'tempo_v2.sqlite')); // v2 чтобы создать новый файл
-
+    final file = File(p.join(dbFolder.path, 'tempo_v3.sqlite'));
     return NativeDatabase(file);
   });
 }
