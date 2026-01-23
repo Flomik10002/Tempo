@@ -25,8 +25,9 @@ class Sessions extends Table {
 class Tasks extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get title => text()();
+  TextColumn get description => text().nullable()(); // NEW: Description
   BoolColumn get isCompleted => boolean().withDefault(const Constant(false))();
-  BoolColumn get isRepeating => boolean().withDefault(const Constant(false))(); // New
+  BoolColumn get isRepeating => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get dueDate => dateTime().nullable()();
 }
@@ -56,7 +57,8 @@ class AppDatabase extends _$AppDatabase {
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dbFolder = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dbFolder.path, 'tempo_v3.sqlite'));
+    // V4 - чтобы добавить поле description
+    final file = File(p.join(dbFolder.path, 'tempo_v4.sqlite'));
     return NativeDatabase(file);
   });
 }

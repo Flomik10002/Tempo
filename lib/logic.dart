@@ -27,19 +27,15 @@ final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>(
 
   switch (filter) {
     case TaskFilter.active:
-    // Все невыполненные
       query.where((t) => t.isCompleted.not());
       break;
     case TaskFilter.scheduled:
-    // Невыполненные с датой
       query.where((t) => t.isCompleted.not() & t.dueDate.isNotNull());
       break;
     case TaskFilter.repeating:
-    // Невыполненные повторяющиеся
       query.where((t) => t.isCompleted.not() & t.isRepeating);
       break;
     case TaskFilter.done:
-    // Только выполненные
       query.where((t) => t.isCompleted);
       break;
   }
@@ -63,7 +59,8 @@ final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWi
   ])
     ..where(
         db.sessions.startTime.isBiggerOrEqualValue(startOfDay) &
-        db.sessions.startTime.isSmallerThanValue(endOfDay)
+        db.sessions.startTime.isSmallerThanValue(endOfDay) &
+        db.sessions.endTime.isNotNull() // Only completed segments in calendar
     );
 
   return query.watch().map((rows) {
@@ -130,7 +127,6 @@ class AppController {
 
   // Tasks
   Future<void> toggleTask(Task task) async {
-    // Просто инвертируем статус. Если станет Done - уйдет во вкладку Done.
     await db.update(db.tasks).replace(task.copyWith(isCompleted: !task.isCompleted));
   }
 
@@ -138,14 +134,35 @@ class AppController {
     await db.delete(db.tasks).delete(task);
   }
 
+  Future<void> updateTask(Task task, String title, String? desc, DateTime? dueDate, bool isRepeating) async {
+    await db.update(db.tasks).replace(task.copyWith(
+      title: title,
+      description: Value(desc),
+      dueDate: Value(dueDate),
+      isRepeating: isRepeating,
+    ));
+  }
+
+  Future<void> addTask(String title, String? desc, DateTime? dueDate, bool isRepeating) async {
+    await db.into(db.tasks).insert(TasksCompanion.insert(
+      title: title,
+      description: Value(desc),
+      dueDate: Value(dueDate),
+      isRepeating: Value(isRepeating),
+    ));
+  }
+
   // Calendar
-  Future<void> addSegment(DateTime start, int activityId) async {
-    // Добавляем сегмент длительностью 1 час по умолчанию
+  Future<void> addSegment(DateTime start, DateTime end, int activityId) async {
     await db.into(db.sessions).insert(SessionsCompanion.insert(
       activityId: activityId,
       startTime: start,
-      endTime: Value(start.add(const Duration(hours: 1))),
+      endTime: Value(end),
     ));
+  }
+
+  Future<void> deleteSession(int sessionId) async {
+    await (db.delete(db.sessions)..where((s) => s.id.equals(sessionId))).go();
   }
 
   Future<void> updateSegmentTime(int sessionId, DateTime start, DateTime end) async {

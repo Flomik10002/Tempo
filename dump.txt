@@ -12,7 +12,7 @@ part 'database.g.dart';
 class Activities extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text()();
-  TextColumn get color => text()(); // Hex
+  TextColumn get color => text()(); // Hex 0xFF...
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
 }
 
@@ -27,8 +27,8 @@ class Tasks extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get title => text()();
   BoolColumn get isCompleted => boolean().withDefault(const Constant(false))();
+  BoolColumn get isRepeating => boolean().withDefault(const Constant(false))(); // New
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
-  // Добавили это поле, так как оно используется в UI
   DateTimeColumn get dueDate => dateTime().nullable()();
 }
 
@@ -45,33 +45,20 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (Migrator m) async {
       await m.createAll();
-
       // Seed data
-      await into(activities).insert(ActivitiesCompanion.insert(
-          name: 'Coding',
-          color: '0xFF007AFF',
-          sortOrder: const Value(0)
-      ));
-      await into(activities).insert(ActivitiesCompanion.insert(
-          name: 'Design',
-          color: '0xFFAF52DE',
-          sortOrder: const Value(1)
-      ));
-      await into(activities).insert(ActivitiesCompanion.insert(
-          name: 'Workout',
-          color: '0xFF34C759',
-          sortOrder: const Value(2)
-      ));
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Coding', color: '0xFF007AFF', sortOrder: const Value(0)));
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Design', color: '0xFFAF52DE', sortOrder: const Value(1)));
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Sport', color: '0xFF34C759', sortOrder: const Value(2)));
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Rest', color: '0xFFFF9500', sortOrder: const Value(3)));
     },
   );
 }
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
-    // Используем DocumentsDirectory - это работает и на iOS, и на Android без ошибок
     final dbFolder = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dbFolder.path, 'tempo_glass.sqlite'));
-    return NativeDatabase.createInBackground(file);
+    final file = File(p.join(dbFolder.path, 'tempo_v3.sqlite'));
+    return NativeDatabase(file);
   });
 }
 
@@ -79,74 +66,163 @@ LazyDatabase _openConnection() {
 
 /home/flomik/StudioProjects/Tempo/lib/logic.dart logic.dart
 import 'dart:async';
-import 'package:drift/drift.dart'; // Важно для Value и Companions
+import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:tempo/database.dart'; // Убедись, что файл называется database.dart
+import 'package:tempo/database.dart';
 
 // DB Access
-final databaseProvider = Provider<AppDatabase>((ref) => AppDatabase());
+final databaseProvider = Provider<AppDatabase>((ref) {
+  final db = AppDatabase();
+  ref.onDispose(() => db.close());
+  return db;
+});
 
-// --- Timer Logic ---
+// --- ACTIVITIES ---
 
-// Активная сессия
+final activitiesStreamProvider = StreamProvider.autoDispose<List<Activity>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return (db.select(db.activities)..orderBy([(t) => OrderingTerm.asc(t.sortOrder)])).watch();
+});
+
+// --- TASKS FILTERS ---
+
+enum TaskFilter { active, scheduled, repeating, done }
+
+final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>((ref, filter) {
+  final db = ref.watch(databaseProvider);
+  final query = db.select(db.tasks);
+
+  switch (filter) {
+    case TaskFilter.active:
+    // Все невыполненные
+      query.where((t) => t.isCompleted.not());
+      break;
+    case TaskFilter.scheduled:
+    // Невыполненные с датой
+      query.where((t) => t.isCompleted.not() & t.dueDate.isNotNull());
+      break;
+    case TaskFilter.repeating:
+    // Невыполненные повторяющиеся
+      query.where((t) => t.isCompleted.not() & t.isRepeating);
+      break;
+    case TaskFilter.done:
+    // Только выполненные
+      query.where((t) => t.isCompleted);
+      break;
+  }
+
+  return (query..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
+});
+
+// --- CALENDAR & SESSIONS ---
+
+final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
+
+// Сессии для конкретного дня
+final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWithActivity>, DateTime>((ref, date) {
+  final db = ref.watch(databaseProvider);
+
+  final startOfDay = DateTime(date.year, date.month, date.day);
+  final endOfDay = startOfDay.add(const Duration(days: 1));
+
+  final query = db.select(db.sessions).join([
+    leftOuterJoin(db.activities, db.activities.id.equalsExp(db.sessions.activityId))
+  ])
+    ..where(
+        db.sessions.startTime.isBiggerOrEqualValue(startOfDay) &
+        db.sessions.startTime.isSmallerThanValue(endOfDay)
+    );
+
+  return query.watch().map((rows) {
+    return rows.map((row) {
+      return SessionWithActivity(
+        session: row.readTable(db.sessions),
+        activity: row.readTable(db.activities),
+      );
+    }).toList();
+  });
+});
+
+class SessionWithActivity {
+  final Session session;
+  final Activity activity;
+  SessionWithActivity({required this.session, required this.activity});
+}
+
+// --- TIMER LOGIC ---
+
 final activeSessionProvider = StreamProvider.autoDispose<Session?>((ref) {
   final db = ref.watch(databaseProvider);
   return (db.select(db.sessions)..where((s) => s.endTime.isNull())).watchSingleOrNull();
 });
 
-// Длительность текущей сессии (обновляется каждую секунду)
 final currentDurationProvider = Provider.autoDispose<Duration>((ref) {
-  final sessionAsync = ref.watch(activeSessionProvider);
-
-  // Триггер перерисовки каждую секунду
+  final session = ref.watch(activeSessionProvider).value;
+  if (session == null) return Duration.zero;
   ref.watch(tickerProvider);
-
-  return sessionAsync.when(
-    data: (session) {
-      if (session == null) return Duration.zero;
-      return DateTime.now().difference(session.startTime);
-    },
-    loading: () => Duration.zero,
-    error: (_, __) => Duration.zero,
-  );
+  return DateTime.now().difference(session.startTime);
 });
 
-// Тикер
 final tickerProvider = StreamProvider.autoDispose<int>((ref) {
   return Stream.periodic(const Duration(seconds: 1), (i) => i);
 });
 
-// Контроллер таймера
-class TimerController {
-  final AppDatabase db;
-  TimerController(this.db);
+// --- CONTROLLER ---
 
+class AppController {
+  final AppDatabase db;
+  AppController(this.db);
+
+  // Timer
   Future<void> toggleSession(int activityId) async {
     final active = await (db.select(db.sessions)..where((s) => s.endTime.isNull())).getSingleOrNull();
-
     if (active != null) {
-      // Stop current
       await (db.update(db.sessions)..where((s) => s.id.equals(active.id))).write(
         SessionsCompanion(endTime: Value(DateTime.now())),
       );
-      // Если нажали на другую активность — запускаем её сразу
-      if (active.activityId != activityId) {
-        await _start(activityId);
-      }
+      if (active.activityId != activityId) await _start(activityId);
     } else {
       await _start(activityId);
     }
   }
 
   Future<void> _start(int id) async {
+    await db.into(db.sessions).insert(SessionsCompanion.insert(activityId: id, startTime: DateTime.now()));
+  }
+
+  // Activities
+  Future<void> addActivity(String name, String color) async {
+    await db.into(db.activities).insert(ActivitiesCompanion.insert(name: name, color: color));
+  }
+
+  // Tasks
+  Future<void> toggleTask(Task task) async {
+    // Просто инвертируем статус. Если станет Done - уйдет во вкладку Done.
+    await db.update(db.tasks).replace(task.copyWith(isCompleted: !task.isCompleted));
+  }
+
+  Future<void> deleteTask(Task task) async {
+    await db.delete(db.tasks).delete(task);
+  }
+
+  // Calendar
+  Future<void> addSegment(DateTime start, int activityId) async {
+    // Добавляем сегмент длительностью 1 час по умолчанию
     await db.into(db.sessions).insert(SessionsCompanion.insert(
-      activityId: id,
-      startTime: DateTime.now(),
+      activityId: activityId,
+      startTime: start,
+      endTime: Value(start.add(const Duration(hours: 1))),
     ));
+  }
+
+  Future<void> updateSegmentTime(int sessionId, DateTime start, DateTime end) async {
+    await (db.update(db.sessions)..where((s) => s.id.equals(sessionId))).write(
+      SessionsCompanion(startTime: Value(start), endTime: Value(end)),
+    );
   }
 }
 
-final timerControllerProvider = Provider((ref) => TimerController(ref.watch(databaseProvider)));
+final appControllerProvider = Provider((ref) => AppController(ref.watch(databaseProvider)));
 
 ================================================================================
 
@@ -706,6 +782,16 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'CHECK ("is_completed" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _isRepeatingMeta =
+      const VerificationMeta('isRepeating');
+  @override
+  late final GeneratedColumn<bool> isRepeating = GeneratedColumn<bool>(
+      'is_repeating', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("is_repeating" IN (0, 1))'),
+      defaultValue: const Constant(false));
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -722,7 +808,7 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns =>
-      [id, title, isCompleted, createdAt, dueDate];
+      [id, title, isCompleted, isRepeating, createdAt, dueDate];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -748,6 +834,12 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
           isCompleted.isAcceptableOrUnknown(
               data['is_completed']!, _isCompletedMeta));
     }
+    if (data.containsKey('is_repeating')) {
+      context.handle(
+          _isRepeatingMeta,
+          isRepeating.isAcceptableOrUnknown(
+              data['is_repeating']!, _isRepeatingMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -771,6 +863,8 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
           .read(DriftSqlType.string, data['${effectivePrefix}title'])!,
       isCompleted: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_completed'])!,
+      isRepeating: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_repeating'])!,
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       dueDate: attachedDatabase.typeMapping
@@ -788,12 +882,14 @@ class Task extends DataClass implements Insertable<Task> {
   final int id;
   final String title;
   final bool isCompleted;
+  final bool isRepeating;
   final DateTime createdAt;
   final DateTime? dueDate;
   const Task(
       {required this.id,
       required this.title,
       required this.isCompleted,
+      required this.isRepeating,
       required this.createdAt,
       this.dueDate});
   @override
@@ -802,6 +898,7 @@ class Task extends DataClass implements Insertable<Task> {
     map['id'] = Variable<int>(id);
     map['title'] = Variable<String>(title);
     map['is_completed'] = Variable<bool>(isCompleted);
+    map['is_repeating'] = Variable<bool>(isRepeating);
     map['created_at'] = Variable<DateTime>(createdAt);
     if (!nullToAbsent || dueDate != null) {
       map['due_date'] = Variable<DateTime>(dueDate);
@@ -814,6 +911,7 @@ class Task extends DataClass implements Insertable<Task> {
       id: Value(id),
       title: Value(title),
       isCompleted: Value(isCompleted),
+      isRepeating: Value(isRepeating),
       createdAt: Value(createdAt),
       dueDate: dueDate == null && nullToAbsent
           ? const Value.absent()
@@ -828,6 +926,7 @@ class Task extends DataClass implements Insertable<Task> {
       id: serializer.fromJson<int>(json['id']),
       title: serializer.fromJson<String>(json['title']),
       isCompleted: serializer.fromJson<bool>(json['isCompleted']),
+      isRepeating: serializer.fromJson<bool>(json['isRepeating']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       dueDate: serializer.fromJson<DateTime?>(json['dueDate']),
     );
@@ -839,6 +938,7 @@ class Task extends DataClass implements Insertable<Task> {
       'id': serializer.toJson<int>(id),
       'title': serializer.toJson<String>(title),
       'isCompleted': serializer.toJson<bool>(isCompleted),
+      'isRepeating': serializer.toJson<bool>(isRepeating),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'dueDate': serializer.toJson<DateTime?>(dueDate),
     };
@@ -848,12 +948,14 @@ class Task extends DataClass implements Insertable<Task> {
           {int? id,
           String? title,
           bool? isCompleted,
+          bool? isRepeating,
           DateTime? createdAt,
           Value<DateTime?> dueDate = const Value.absent()}) =>
       Task(
         id: id ?? this.id,
         title: title ?? this.title,
         isCompleted: isCompleted ?? this.isCompleted,
+        isRepeating: isRepeating ?? this.isRepeating,
         createdAt: createdAt ?? this.createdAt,
         dueDate: dueDate.present ? dueDate.value : this.dueDate,
       );
@@ -863,6 +965,8 @@ class Task extends DataClass implements Insertable<Task> {
       title: data.title.present ? data.title.value : this.title,
       isCompleted:
           data.isCompleted.present ? data.isCompleted.value : this.isCompleted,
+      isRepeating:
+          data.isRepeating.present ? data.isRepeating.value : this.isRepeating,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       dueDate: data.dueDate.present ? data.dueDate.value : this.dueDate,
     );
@@ -874,6 +978,7 @@ class Task extends DataClass implements Insertable<Task> {
           ..write('id: $id, ')
           ..write('title: $title, ')
           ..write('isCompleted: $isCompleted, ')
+          ..write('isRepeating: $isRepeating, ')
           ..write('createdAt: $createdAt, ')
           ..write('dueDate: $dueDate')
           ..write(')'))
@@ -881,7 +986,8 @@ class Task extends DataClass implements Insertable<Task> {
   }
 
   @override
-  int get hashCode => Object.hash(id, title, isCompleted, createdAt, dueDate);
+  int get hashCode =>
+      Object.hash(id, title, isCompleted, isRepeating, createdAt, dueDate);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -889,6 +995,7 @@ class Task extends DataClass implements Insertable<Task> {
           other.id == this.id &&
           other.title == this.title &&
           other.isCompleted == this.isCompleted &&
+          other.isRepeating == this.isRepeating &&
           other.createdAt == this.createdAt &&
           other.dueDate == this.dueDate);
 }
@@ -897,12 +1004,14 @@ class TasksCompanion extends UpdateCompanion<Task> {
   final Value<int> id;
   final Value<String> title;
   final Value<bool> isCompleted;
+  final Value<bool> isRepeating;
   final Value<DateTime> createdAt;
   final Value<DateTime?> dueDate;
   const TasksCompanion({
     this.id = const Value.absent(),
     this.title = const Value.absent(),
     this.isCompleted = const Value.absent(),
+    this.isRepeating = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.dueDate = const Value.absent(),
   });
@@ -910,6 +1019,7 @@ class TasksCompanion extends UpdateCompanion<Task> {
     this.id = const Value.absent(),
     required String title,
     this.isCompleted = const Value.absent(),
+    this.isRepeating = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.dueDate = const Value.absent(),
   }) : title = Value(title);
@@ -917,6 +1027,7 @@ class TasksCompanion extends UpdateCompanion<Task> {
     Expression<int>? id,
     Expression<String>? title,
     Expression<bool>? isCompleted,
+    Expression<bool>? isRepeating,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? dueDate,
   }) {
@@ -924,6 +1035,7 @@ class TasksCompanion extends UpdateCompanion<Task> {
       if (id != null) 'id': id,
       if (title != null) 'title': title,
       if (isCompleted != null) 'is_completed': isCompleted,
+      if (isRepeating != null) 'is_repeating': isRepeating,
       if (createdAt != null) 'created_at': createdAt,
       if (dueDate != null) 'due_date': dueDate,
     });
@@ -933,12 +1045,14 @@ class TasksCompanion extends UpdateCompanion<Task> {
       {Value<int>? id,
       Value<String>? title,
       Value<bool>? isCompleted,
+      Value<bool>? isRepeating,
       Value<DateTime>? createdAt,
       Value<DateTime?>? dueDate}) {
     return TasksCompanion(
       id: id ?? this.id,
       title: title ?? this.title,
       isCompleted: isCompleted ?? this.isCompleted,
+      isRepeating: isRepeating ?? this.isRepeating,
       createdAt: createdAt ?? this.createdAt,
       dueDate: dueDate ?? this.dueDate,
     );
@@ -956,6 +1070,9 @@ class TasksCompanion extends UpdateCompanion<Task> {
     if (isCompleted.present) {
       map['is_completed'] = Variable<bool>(isCompleted.value);
     }
+    if (isRepeating.present) {
+      map['is_repeating'] = Variable<bool>(isRepeating.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -971,6 +1088,7 @@ class TasksCompanion extends UpdateCompanion<Task> {
           ..write('id: $id, ')
           ..write('title: $title, ')
           ..write('isCompleted: $isCompleted, ')
+          ..write('isRepeating: $isRepeating, ')
           ..write('createdAt: $createdAt, ')
           ..write('dueDate: $dueDate')
           ..write(')'))
@@ -1478,6 +1596,7 @@ typedef $$TasksTableCreateCompanionBuilder = TasksCompanion Function({
   Value<int> id,
   required String title,
   Value<bool> isCompleted,
+  Value<bool> isRepeating,
   Value<DateTime> createdAt,
   Value<DateTime?> dueDate,
 });
@@ -1485,6 +1604,7 @@ typedef $$TasksTableUpdateCompanionBuilder = TasksCompanion Function({
   Value<int> id,
   Value<String> title,
   Value<bool> isCompleted,
+  Value<bool> isRepeating,
   Value<DateTime> createdAt,
   Value<DateTime?> dueDate,
 });
@@ -1505,6 +1625,9 @@ class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
 
   ColumnFilters<bool> get isCompleted => $composableBuilder(
       column: $table.isCompleted, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isRepeating => $composableBuilder(
+      column: $table.isRepeating, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -1531,6 +1654,9 @@ class $$TasksTableOrderingComposer
   ColumnOrderings<bool> get isCompleted => $composableBuilder(
       column: $table.isCompleted, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<bool> get isRepeating => $composableBuilder(
+      column: $table.isRepeating, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 
@@ -1555,6 +1681,9 @@ class $$TasksTableAnnotationComposer
 
   GeneratedColumn<bool> get isCompleted => $composableBuilder(
       column: $table.isCompleted, builder: (column) => column);
+
+  GeneratedColumn<bool> get isRepeating => $composableBuilder(
+      column: $table.isRepeating, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -1589,6 +1718,7 @@ class $$TasksTableTableManager extends RootTableManager<
             Value<int> id = const Value.absent(),
             Value<String> title = const Value.absent(),
             Value<bool> isCompleted = const Value.absent(),
+            Value<bool> isRepeating = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime?> dueDate = const Value.absent(),
           }) =>
@@ -1596,6 +1726,7 @@ class $$TasksTableTableManager extends RootTableManager<
             id: id,
             title: title,
             isCompleted: isCompleted,
+            isRepeating: isRepeating,
             createdAt: createdAt,
             dueDate: dueDate,
           ),
@@ -1603,6 +1734,7 @@ class $$TasksTableTableManager extends RootTableManager<
             Value<int> id = const Value.absent(),
             required String title,
             Value<bool> isCompleted = const Value.absent(),
+            Value<bool> isRepeating = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime?> dueDate = const Value.absent(),
           }) =>
@@ -1610,6 +1742,7 @@ class $$TasksTableTableManager extends RootTableManager<
             id: id,
             title: title,
             isCompleted: isCompleted,
+            isRepeating: isRepeating,
             createdAt: createdAt,
             dueDate: dueDate,
           ),
@@ -1650,12 +1783,13 @@ class $AppDatabaseManager {
 /home/flomik/StudioProjects/Tempo/lib/main.dart main.dart
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset;
+import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cupertino_native/cupertino_native.dart';
 import 'package:gap/gap.dart';
 import 'package:glass/glass.dart';
-// Убрал лишний импорт drift/drift.dart
+import 'package:drift/drift.dart' show Value;
+import 'package:intl/intl.dart';
 
 import 'package:tempo/database.dart';
 import 'package:tempo/logic.dart';
@@ -1683,8 +1817,6 @@ class TempoApp extends StatelessWidget {
   }
 }
 
-// --- Layout with CNTabBar ---
-
 class RootLayout extends StatefulWidget {
   const RootLayout({super.key});
 
@@ -1694,34 +1826,22 @@ class RootLayout extends StatefulWidget {
 
 class _RootLayoutState extends State<RootLayout> {
   int _index = 0;
-
-  final _pages = const [
-    HomeView(),
-    TasksView(),
-    CalendarView(),
-    BodyMapView(),
-  ];
+  final _pages = const [HomeView(), TasksView(), CalendarView(), BodyMapView()];
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        Positioned.fill(
-          child: CupertinoPageScaffold(
-            child: _pages[_index],
-          ),
-        ),
+        Positioned.fill(child: CupertinoPageScaffold(child: _pages[_index])),
         Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
+          left: 0, right: 0, bottom: 0,
           child: CNTabBar(
             currentIndex: _index,
             onTap: (i) => setState(() => _index = i),
             items: const [
               CNTabBarItem(label: 'Timer', icon: CNSymbol('timer')),
               CNTabBarItem(label: 'Tasks', icon: CNSymbol('checklist')),
-              CNTabBarItem(label: 'History', icon: CNSymbol('calendar')),
+              CNTabBarItem(label: 'Calendar', icon: CNSymbol('calendar')),
               CNTabBarItem(label: 'Body', icon: CNSymbol('figure.arms.open')),
             ],
           ),
@@ -1731,7 +1851,7 @@ class _RootLayoutState extends State<RootLayout> {
   }
 }
 
-// --- 1. HOME (TIMER) ---
+// --- 1. HOME (TIMER & ACTIVITIES) ---
 
 class HomeView extends ConsumerWidget {
   const HomeView({super.key});
@@ -1740,8 +1860,7 @@ class HomeView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final activeSession = ref.watch(activeSessionProvider).value;
     final duration = ref.watch(currentDurationProvider);
-
-    final activitiesAsync = ref.watch(StreamProvider((ref) => ref.watch(databaseProvider).select(ref.watch(databaseProvider).activities).watch()));
+    final activitiesAsync = ref.watch(activitiesStreamProvider);
 
     return SafeArea(
       child: Padding(
@@ -1749,105 +1868,98 @@ class HomeView extends ConsumerWidget {
         child: Column(
           children: [
             const Gap(20),
-            Text(
-              activeSession == null ? 'No active session' : 'Focusing...',
-              style: const TextStyle(fontSize: 16, color: CupertinoColors.systemGrey),
-            ),
-            const Gap(40),
-
             GlassCard(
               child: Column(
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Session Time', style: TextStyle(color: CupertinoColors.systemGrey)),
-                      const CNIcon(symbol: CNSymbol('clock', color: CupertinoColors.systemGrey)),
+                      const Text('Current Session', style: TextStyle(color: CupertinoColors.systemGrey)),
+                      if (activeSession != null)
+                        const CNIcon(symbol: CNSymbol('record.circle', color: CupertinoColors.systemRed))
                     ],
                   ),
                   const Gap(10),
                   Text(
                     _formatDuration(duration),
-                    style: const TextStyle(
-                      fontSize: 56,
-                      fontWeight: FontWeight.w200,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    ),
+                    style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w200, fontFeatures: [FontFeature.tabularFigures()]),
                   ),
                   const Gap(20),
                   if (activeSession != null)
-                    CNButton.icon(
-                      icon: const CNSymbol('stop.fill'),
-                      onPressed: () => ref.read(timerControllerProvider).toggleSession(activeSession.activityId),
-                    )
+                    CNButton.icon(icon: const CNSymbol('stop.fill'), onPressed: () => ref.read(appControllerProvider).toggleSession(activeSession.activityId))
                   else
-                    const Text('Select activity below', style: TextStyle(color: CupertinoColors.systemBlue)),
+                    const Text('Tap an activity to start', style: TextStyle(color: CupertinoColors.systemBlue)),
                 ],
               ),
             ),
-
-            const Gap(24),
-
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Activities', style: CupertinoTheme.of(context).textTheme.navTitleTextStyle),
+            const Gap(30),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Activities', style: CupertinoTheme.of(context).textTheme.navTitleTextStyle),
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  child: const Icon(CupertinoIcons.add),
+                  onPressed: () => _showAddActivityDialog(context, ref),
+                ),
+              ],
             ),
-            const Gap(12),
-
+            const Gap(10),
             activitiesAsync.when(
               data: (activities) => Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: activities.map((act) {
-                  final isActive = activeSession?.activityId == act.id;
-                  return GestureDetector(
-                    onTap: () => ref.read(timerControllerProvider).toggleSession(act.id),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                          color: isActive
-                              ? CupertinoColors.activeBlue
-                              : CupertinoColors.white.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: CupertinoColors.white.withOpacity(0.2),
-                            width: 1,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            )
-                          ]
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 8, height: 8,
-                            decoration: BoxDecoration(
-                              color: Color(int.parse(act.color)),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const Gap(8),
-                          Text(
-                            act.name,
-                            style: TextStyle(
-                              color: isActive ? Colors.white : CupertinoColors.black,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
+                spacing: 12, runSpacing: 12,
+                children: [
+                  ...activities.map((act) => _ActivityChip(activity: act, isActive: activeSession?.activityId == act.id)),
+                ],
               ),
               loading: () => const CupertinoActivityIndicator(),
-              error: (e,s) => Text('Error: $e'),
+              error: (e, s) => Text('$e'),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAddActivityDialog(BuildContext context, WidgetRef ref) {
+    final nameCtrl = TextEditingController();
+    String selectedColor = '0xFF007AFF';
+    final colors = ['0xFF007AFF', '0xFFFF2D55', '0xFF34C759', '0xFFFF9500', '0xFFAF52DE', '0xFF5856D6'];
+
+    showCupertinoDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) => CupertinoAlertDialog(
+          title: const Text('New Activity'),
+          content: Column(
+            children: [
+              const Gap(10),
+              CupertinoTextField(controller: nameCtrl, placeholder: 'Activity Name'),
+              const Gap(15),
+              Wrap(
+                spacing: 8, runSpacing: 8,
+                children: colors.map((c) => GestureDetector(
+                  onTap: () => setState(() => selectedColor = c),
+                  child: Container(
+                    width: 24, height: 24,
+                    decoration: BoxDecoration(
+                      color: Color(int.parse(c)),
+                      shape: BoxShape.circle,
+                      border: selectedColor == c ? Border.all(color: Colors.black, width: 2) : null,
+                    ),
+                  ),
+                )).toList(),
+              )
+            ],
+          ),
+          actions: [
+            CupertinoDialogAction(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            CupertinoDialogAction(onPressed: () {
+              if (nameCtrl.text.isNotEmpty) {
+                ref.read(appControllerProvider).addActivity(nameCtrl.text, selectedColor);
+                Navigator.pop(ctx);
+              }
+            }, child: const Text('Add')),
           ],
         ),
       ),
@@ -1860,15 +1972,52 @@ class HomeView extends ConsumerWidget {
   }
 }
 
-// --- 2. TASKS ---
-
-class TasksView extends ConsumerWidget {
-  const TasksView({super.key});
+class _ActivityChip extends ConsumerWidget {
+  final Activity activity;
+  final bool isActive;
+  const _ActivityChip({required this.activity, required this.isActive});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final db = ref.watch(databaseProvider);
-    final tasksAsync = ref.watch(StreamProvider((ref) => ref.watch(databaseProvider).select(ref.watch(databaseProvider).tasks).watch()));
+    final color = Color(int.parse(activity.color));
+    return GestureDetector(
+      onTap: () => ref.read(appControllerProvider).toggleSession(activity.id),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isActive ? CupertinoColors.activeBlue : CupertinoColors.white.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isActive ? Colors.transparent : CupertinoColors.white.withOpacity(0.2)),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 8, height: 8, decoration: BoxDecoration(color: isActive ? Colors.white : color, shape: BoxShape.circle)),
+            const Gap(8),
+            Text(activity.name, style: TextStyle(color: isActive ? Colors.white : CupertinoColors.black, fontWeight: FontWeight.w500)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- 2. TASKS ---
+
+class TasksView extends ConsumerStatefulWidget {
+  const TasksView({super.key});
+  @override
+  ConsumerState<TasksView> createState() => _TasksViewState();
+}
+
+class _TasksViewState extends ConsumerState<TasksView> {
+  TaskFilter _filter = TaskFilter.active;
+
+  @override
+  Widget build(BuildContext context) {
+    final tasksAsync = ref.watch(tasksProvider(_filter));
 
     return SafeArea(
       child: Column(
@@ -1879,76 +2028,93 @@ class TasksView extends ConsumerWidget {
               children: [
                 Text('Tasks', style: CupertinoTheme.of(context).textTheme.navLargeTitleTextStyle),
                 const Spacer(),
-                CNButton.icon(
-                  icon: const CNSymbol('plus'),
-                  onPressed: () => _addTask(context, ref),
-                ),
+                CNButton.icon(icon: const CNSymbol('plus'), onPressed: () => _showAddTask(context)),
               ],
             ),
           ),
-          Padding(
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: SizedBox(
-              width: double.infinity,
-              child: CNSegmentedControl(
-                labels: const ['Active', 'Done'],
-                selectedIndex: 0,
-                onValueChanged: (i) {},
-              ),
+            child: Row(
+              children: [
+                _filterChip('Active', TaskFilter.active),
+                const Gap(8),
+                _filterChip('Scheduled', TaskFilter.scheduled),
+                const Gap(8),
+                _filterChip('Repeating', TaskFilter.repeating),
+                const Gap(8),
+                _filterChip('Done', TaskFilter.done),
+              ],
             ),
           ),
-          const Gap(20),
-
+          const Gap(10),
           Expanded(
             child: tasksAsync.when(
-              data: (tasks) => ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 0),
-                itemCount: tasks.length,
-                separatorBuilder: (_,__) => const Gap(12),
-                itemBuilder: (ctx, index) {
-                  final task = tasks[index];
-                  return Dismissible(
-                    key: Key('${task.id}'),
-                    direction: DismissDirection.endToStart,
-                    onDismissed: (_) => db.delete(db.tasks).delete(task),
-                    background: Container(
-                      decoration: BoxDecoration(color: CupertinoColors.destructiveRed, borderRadius: BorderRadius.circular(16)),
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.only(right: 20),
-                      child: const Icon(CupertinoIcons.trash, color: Colors.white),
-                    ),
-                    child: GlassCard(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          GestureDetector(
-                            onTap: () => db.update(db.tasks).replace(task.copyWith(isCompleted: !task.isCompleted)),
-                            child: Icon(
-                              task.isCompleted ? CupertinoIcons.check_mark_circled_solid : CupertinoIcons.circle,
-                              color: task.isCompleted ? CupertinoColors.activeGreen : CupertinoColors.systemGrey3,
-                            ),
-                          ),
-                          const Gap(12),
-                          Expanded(
-                            child: Text(
-                              task.title,
-                              style: TextStyle(
-                                decoration: task.isCompleted ? TextDecoration.lineThrough : null,
-                                color: task.isCompleted ? CupertinoColors.systemGrey : CupertinoColors.black,
-                                fontSize: 17,
+              data: (tasks) {
+                if (tasks.isEmpty) return const Center(child: Text("Empty", style: TextStyle(color: CupertinoColors.systemGrey)));
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
+                  itemCount: tasks.length,
+                  separatorBuilder: (_,__) => const Gap(12),
+                  itemBuilder: (ctx, index) {
+                    final task = tasks[index];
+                    return Dismissible(
+                      key: Key('${task.id}'),
+                      direction: DismissDirection.endToStart,
+                      onDismissed: (_) => ref.read(appControllerProvider).deleteTask(task),
+                      background: Container(
+                        decoration: BoxDecoration(color: CupertinoColors.destructiveRed, borderRadius: BorderRadius.circular(16)),
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
+                        child: const Icon(CupertinoIcons.trash, color: Colors.white),
+                      ),
+                      child: GlassCard(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            GestureDetector(
+                              onTap: () => ref.read(appControllerProvider).toggleTask(task),
+                              child: Icon(
+                                task.isCompleted ? CupertinoIcons.check_mark_circled_solid : CupertinoIcons.circle,
+                                color: task.isCompleted ? CupertinoColors.activeGreen : CupertinoColors.systemGrey3,
                               ),
                             ),
-                          ),
-                          if (task.dueDate != null)
-                            const CNIcon(symbol: CNSymbol('calendar.badge.clock', color: CupertinoColors.systemRed)),
-                        ],
+                            const Gap(12),
+                            Expanded(child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  task.title,
+                                  style: TextStyle(
+                                    decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+                                    color: task.isCompleted ? CupertinoColors.systemGrey : CupertinoColors.black,
+                                    fontSize: 17,
+                                  ),
+                                ),
+                                if (task.dueDate != null || task.isRepeating)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Row(
+                                      children: [
+                                        if (task.dueDate != null)
+                                          Text(DateFormat('MMM d').format(task.dueDate!), style: const TextStyle(fontSize: 12, color: CupertinoColors.systemRed)),
+                                        if (task.dueDate != null && task.isRepeating) const Gap(8),
+                                        if (task.isRepeating)
+                                          const Icon(CupertinoIcons.repeat, size: 12, color: CupertinoColors.systemGrey),
+                                      ],
+                                    ),
+                                  )
+                              ],
+                            )),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                );
+              },
               loading: () => const Center(child: CupertinoActivityIndicator()),
-              error: (e,s) => Text('$e'),
+              error: (e,s) => Center(child: Text('$e')),
             ),
           ),
         ],
@@ -1956,66 +2122,263 @@ class TasksView extends ConsumerWidget {
     );
   }
 
-  void _addTask(BuildContext context, WidgetRef ref) {
+  Widget _filterChip(String label, TaskFilter filter) {
+    final isSelected = _filter == filter;
+    return GestureDetector(
+      onTap: () => setState(() => _filter = filter),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? CupertinoColors.activeBlue : CupertinoColors.systemGrey6,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+              color: isSelected ? Colors.white : CupertinoColors.black,
+              fontSize: 14, fontWeight: FontWeight.w500
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAddTask(BuildContext context) {
+    final titleCtrl = TextEditingController();
+    DateTime? pickedDate;
+    bool isRepeating = false;
+
     showCupertinoDialog(
-        context: context,
-        builder: (ctx) {
-          final ctrl = TextEditingController();
-          return CupertinoAlertDialog(
-            title: const Text('New Task'),
-            content: Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: CupertinoTextField(controller: ctrl, placeholder: 'Task name'),
-            ),
-            actions: [
-              CupertinoDialogAction(isDestructiveAction: true, onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-              CupertinoDialogAction(isDefaultAction: true, onPressed: () {
-                if (ctrl.text.isNotEmpty) {
-                  final db = ref.read(databaseProvider);
-                  db.into(db.tasks).insert(TasksCompanion.insert(title: ctrl.text));
-                }
-                Navigator.pop(ctx);
-              }, child: const Text('Add')),
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) => CupertinoAlertDialog(
+          title: const Text('New Task'),
+          content: Column(
+            children: [
+              const Gap(10),
+              CupertinoTextField(controller: titleCtrl, placeholder: 'Task name', autofocus: true),
+              const Gap(15),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Due Date'),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    child: Text(pickedDate == null ? 'None' : DateFormat('MM/dd').format(pickedDate!)),
+                    onPressed: () => _pickDate(context, (d) => setState(() => pickedDate = d)),
+                  )
+                ],
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Repeat Daily'),
+                  CupertinoSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
+                ],
+              )
             ],
-          );
-        }
+          ),
+          actions: [
+            CupertinoDialogAction(isDestructiveAction: true, onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            CupertinoDialogAction(isDefaultAction: true, onPressed: () {
+              if (titleCtrl.text.isNotEmpty) {
+                final db = ref.read(databaseProvider);
+                db.into(db.tasks).insert(TasksCompanion.insert(
+                  title: titleCtrl.text,
+                  dueDate: Value(pickedDate),
+                  isRepeating: Value(isRepeating),
+                ));
+              }
+              Navigator.pop(ctx);
+            }, child: const Text('Add')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _pickDate(BuildContext context, Function(DateTime) onPicked) {
+    showCupertinoModalPopup(
+        context: context,
+        builder: (_) => Container(
+          height: 250, color: CupertinoColors.systemBackground,
+          child: CupertinoDatePicker(
+            mode: CupertinoDatePickerMode.date,
+            onDateTimeChanged: onPicked,
+          ),
+        )
     );
   }
 }
 
 // --- 3. CALENDAR ---
 
-class CalendarView extends StatelessWidget {
+class CalendarView extends ConsumerWidget {
   const CalendarView({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selectedDate = ref.watch(selectedDateProvider);
+    final sessionsAsync = ref.watch(sessionsForDateProvider(selectedDate));
+
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            Text('Calendar', style: CupertinoTheme.of(context).textTheme.navLargeTitleTextStyle),
-            const Gap(20),
-            GlassCard(
+      child: Column(
+        children: [
+          // Header & Days Ribbon
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: SizedBox(
+              height: 60,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: 30, // Last 30 days
+                reverse: true, // Start from today
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                itemBuilder: (ctx, index) {
+                  final date = DateTime.now().subtract(Duration(days: index));
+                  final isSelected = isSameDay(date, selectedDate);
+                  return GestureDetector(
+                    onTap: () => ref.read(selectedDateProvider.notifier).state = date,
+                    child: Container(
+                      width: 50, margin: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: isSelected ? CupertinoColors.activeBlue : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(DateFormat.E().format(date), style: TextStyle(fontSize: 12, color: isSelected ? Colors.white : CupertinoColors.systemGrey)),
+                          Text(date.day.toString(), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : CupertinoColors.black)),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          // Timeline
+          Expanded(
+            child: SingleChildScrollView(
               child: SizedBox(
-                height: 300,
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const CNIcon(symbol: CNSymbol('calendar', size: 48, color: CupertinoColors.systemGrey3)),
-                      const Gap(10),
-                      Text('Timeline Coming Soon', style: TextStyle(color: CupertinoColors.systemGrey.withOpacity(0.5))),
-                    ],
-                  ),
+                height: 24 * 60.0, // 60px per hour
+                child: Stack(
+                  children: [
+                    // Background Lines
+                    for (int i = 0; i < 24; i++)
+                      Positioned(
+                        top: i * 60.0, left: 0, right: 0,
+                        child: Container(
+                          height: 60,
+                          decoration: BoxDecoration(border: Border(top: BorderSide(color: CupertinoColors.systemGrey5))),
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 10, top: 5),
+                            child: Text('$i:00', style: const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey)),
+                          ),
+                        ),
+                      ),
+
+                    // Tap to Add
+                    Positioned.fill(
+                      child: GestureDetector(
+                        onTapUp: (details) => _onTapEmpty(context, ref, details.localPosition.dy, selectedDate),
+                        child: Container(color: Colors.transparent),
+                      ),
+                    ),
+
+                    // Blocks
+                    sessionsAsync.when(
+                      data: (items) => Stack(
+                        children: items.map((item) {
+                          final top = _calculateTop(item.session.startTime);
+                          final height = _calculateHeight(item.session.startTime, item.session.endTime);
+                          final color = Color(int.parse(item.activity.color));
+
+                          return Positioned(
+                            top: top, left: 60, right: 10, height: height,
+                            child: GestureDetector(
+                              onTap: () => _editSegment(context, item),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.5),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: color),
+                                ),
+                                padding: const EdgeInsets.all(4),
+                                child: Text(item.activity.name, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      loading: () => const SizedBox(),
+                      error: (e,s) => const SizedBox(),
+                    )
+                  ],
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
+  }
+
+  double _calculateTop(DateTime start) {
+    return (start.hour * 60.0) + start.minute;
+  }
+
+  double _calculateHeight(DateTime start, DateTime? end) {
+    final e = end ?? DateTime.now();
+    final diff = e.difference(start).inMinutes;
+    return diff.toDouble().clamp(20.0, 1440.0); // Minimum 20px height
+  }
+
+  void _onTapEmpty(BuildContext context, WidgetRef ref, double dy, DateTime date) {
+    // Calculate time from tap position
+    final hour = (dy / 60).floor();
+    final tapTime = DateTime(date.year, date.month, date.day, hour);
+
+    // Pick activity
+    final activitiesAsync = ref.read(activitiesStreamProvider);
+    activitiesAsync.whenData((activities) {
+      if(activities.isEmpty) return;
+      showCupertinoModalPopup(
+          context: context,
+          builder: (_) => CupertinoActionSheet(
+            title: Text('Add Segment at $hour:00'),
+            actions: activities.map((a) => CupertinoActionSheetAction(
+              onPressed: () {
+                ref.read(appControllerProvider).addSegment(tapTime, a.id);
+                Navigator.pop(context);
+              },
+              child: Text(a.name, style: TextStyle(color: Color(int.parse(a.color)))),
+            )).toList(),
+            cancelButton: CupertinoActionSheetAction(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          )
+      );
+    });
+  }
+
+  void _editSegment(BuildContext context, SessionWithActivity item) {
+    // Simple delete/edit dialog
+    // For MVP: Just delete option or info
+    showCupertinoDialog(
+        context: context,
+        builder: (ctx) => CupertinoAlertDialog(
+            title: Text(item.activity.name),
+            content: Text('Duration: ${item.session.endTime?.difference(item.session.startTime).inMinutes ?? "?"} min'),
+            actions: [
+              CupertinoDialogAction(child: const Text('OK'), onPressed: () => Navigator.pop(ctx)),
+            ]
+        )
+    );
+  }
+
+  bool isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 }
 
@@ -2023,82 +2386,18 @@ class CalendarView extends StatelessWidget {
 
 class BodyMapView extends StatelessWidget {
   const BodyMapView({super.key});
-
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: CustomPaint(painter: GridPainter()),
-        ),
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Body Map', style: CupertinoTheme.of(context).textTheme.navLargeTitleTextStyle),
-                const Text('AI Muscle Analysis', style: TextStyle(color: CupertinoColors.systemGrey)),
-                const Gap(40),
-
-                Expanded(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildMannequin('Front'),
-                      _buildMannequin('Side'),
-                      _buildMannequin('Back'),
-                    ],
-                  ),
-                ),
-
-                const Gap(80),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMannequin(String label) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 80,
-          height: 250,
-          decoration: BoxDecoration(
-            color: CupertinoColors.systemGrey6,
-            borderRadius: BorderRadius.circular(40),
-            border: Border.all(color: CupertinoColors.systemGrey4),
-          ),
-          child: const Center(
-            child: CNIcon(symbol: CNSymbol('figure.stand', size: 40, color: CupertinoColors.systemGrey)),
-          ),
-        ).asGlass(
-          tintColor: Colors.white,
-          clipBorderRadius: BorderRadius.circular(40),
-        ),
-        const Gap(10),
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-      ],
-    );
+    return SafeArea(child: Center(child: Text('Body Map (Coming Soon)', style: TextStyle(color: CupertinoColors.systemGrey))));
   }
 }
 
-// --- Helper Widgets ---
+// --- HELPERS ---
 
 class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
-
-  const GlassCard({
-    super.key,
-    required this.child,
-    this.padding = const EdgeInsets.all(24)
-  });
-
+  const GlassCard({super.key, required this.child, this.padding = const EdgeInsets.all(24)});
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -2107,44 +2406,17 @@ class GlassCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: CupertinoColors.white.withOpacity(0.5),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: CupertinoColors.white.withOpacity(0.4),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF000000).withOpacity(0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        border: Border.all(color: CupertinoColors.white.withOpacity(0.4), width: 1.5),
+        boxShadow: [BoxShadow(color: const Color(0xFF000000).withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
       ),
       child: child,
-    ).asGlass(
-      tintColor: Colors.white,
-      clipBorderRadius: BorderRadius.circular(24),
-      blurX: 10,
-      blurY: 10,
-    );
+    ).asGlass(tintColor: Colors.white, clipBorderRadius: BorderRadius.circular(24), blurX: 10, blurY: 10);
   }
 }
 
 class GridPainter extends CustomPainter {
   @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = CupertinoColors.systemGrey6
-      ..strokeWidth = 1;
-
-    const step = 40.0;
-    for (double i = 0; i < size.width; i += step) {
-      canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
-    }
-    for (double i = 0; i < size.height; i += step) {
-      canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
-    }
-  }
-
+  void paint(Canvas canvas, Size size) {}
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

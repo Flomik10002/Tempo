@@ -1,8 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider;
+import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider, Material, Icons, DefaultMaterialLocalizations;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cupertino_native/cupertino_native.dart';
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart'; // Import adaptive
 import 'package:gap/gap.dart';
 import 'package:glass/glass.dart';
 import 'package:drift/drift.dart' show Value;
@@ -29,6 +30,11 @@ class TempoApp extends StatelessWidget {
         primaryColor: Color(0xFF007AFF),
         scaffoldBackgroundColor: Color(0xFFF2F2F7),
       ),
+      localizationsDelegates: [
+        DefaultMaterialLocalizations.delegate,
+        DefaultCupertinoLocalizations.delegate,
+        DefaultWidgetsLocalizations.delegate,
+      ],
       home: RootLayout(),
     );
   }
@@ -245,7 +251,7 @@ class _TasksViewState extends ConsumerState<TasksView> {
               children: [
                 Text('Tasks', style: CupertinoTheme.of(context).textTheme.navLargeTitleTextStyle),
                 const Spacer(),
-                CNButton.icon(icon: const CNSymbol('plus'), onPressed: () => _showAddTask(context)),
+                CNButton.icon(icon: const CNSymbol('plus'), onPressed: () => _showTaskDialog(context, ref)),
               ],
             ),
           ),
@@ -254,13 +260,13 @@ class _TasksViewState extends ConsumerState<TasksView> {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                _filterChip('Active', TaskFilter.active),
-                const Gap(8),
-                _filterChip('Scheduled', TaskFilter.scheduled),
-                const Gap(8),
-                _filterChip('Repeating', TaskFilter.repeating),
-                const Gap(8),
-                _filterChip('Done', TaskFilter.done),
+                AdaptiveSegmentedControl(
+                  labels: const ['Active', 'Scheduled', 'Repeating', 'Done'],
+                  selectedIndex: _filter.index,
+                  onValueChanged: (index) {
+                    setState(() => _filter = TaskFilter.values[index]);
+                  },
+                ),
               ],
             ),
           ),
@@ -285,45 +291,48 @@ class _TasksViewState extends ConsumerState<TasksView> {
                         padding: const EdgeInsets.only(right: 20),
                         child: const Icon(CupertinoIcons.trash, color: Colors.white),
                       ),
-                      child: GlassCard(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            GestureDetector(
-                              onTap: () => ref.read(appControllerProvider).toggleTask(task),
-                              child: Icon(
-                                task.isCompleted ? CupertinoIcons.check_mark_circled_solid : CupertinoIcons.circle,
-                                color: task.isCompleted ? CupertinoColors.activeGreen : CupertinoColors.systemGrey3,
+                      child: GestureDetector(
+                        onTap: () => _showTaskDialog(context, ref, task: task),
+                        child: GlassCard(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              AdaptiveCheckbox(
+                                value: task.isCompleted,
+                                onChanged: (val) {
+                                  ref.read(appControllerProvider).toggleTask(task);
+                                },
                               ),
-                            ),
-                            const Gap(12),
-                            Expanded(child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  task.title,
-                                  style: TextStyle(
-                                    decoration: task.isCompleted ? TextDecoration.lineThrough : null,
-                                    color: task.isCompleted ? CupertinoColors.systemGrey : CupertinoColors.black,
-                                    fontSize: 17,
-                                  ),
-                                ),
-                                if (task.dueDate != null || task.isRepeating)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Row(
-                                      children: [
-                                        if (task.dueDate != null)
-                                          Text(DateFormat('MMM d').format(task.dueDate!), style: const TextStyle(fontSize: 12, color: CupertinoColors.systemRed)),
-                                        if (task.dueDate != null && task.isRepeating) const Gap(8),
-                                        if (task.isRepeating)
-                                          const Icon(CupertinoIcons.repeat, size: 12, color: CupertinoColors.systemGrey),
-                                      ],
+                              const Gap(12),
+                              Expanded(child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    task.title,
+                                    style: TextStyle(
+                                      decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+                                      color: task.isCompleted ? CupertinoColors.systemGrey : CupertinoColors.black,
+                                      fontSize: 17,
                                     ),
-                                  )
-                              ],
-                            )),
-                          ],
+                                  ),
+                                  if (task.description != null && task.description!.isNotEmpty)
+                                    Text(task.description!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: CupertinoColors.systemGrey)),
+
+                                  const Gap(4),
+                                  Row(
+                                    children: [
+                                      if (task.dueDate != null)
+                                        Text(DateFormat('MMM d').format(task.dueDate!), style: const TextStyle(fontSize: 12, color: CupertinoColors.systemRed)),
+                                      if (task.dueDate != null && task.isRepeating) const Gap(8),
+                                      if (task.isRepeating)
+                                        const Icon(CupertinoIcons.repeat, size: 12, color: CupertinoColors.systemGrey),
+                                    ],
+                                  ),
+                                ],
+                              )),
+                            ],
+                          ),
                         ),
                       ),
                     );
@@ -339,76 +348,69 @@ class _TasksViewState extends ConsumerState<TasksView> {
     );
   }
 
-  Widget _filterChip(String label, TaskFilter filter) {
-    final isSelected = _filter == filter;
-    return GestureDetector(
-      onTap: () => setState(() => _filter = filter),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? CupertinoColors.activeBlue : CupertinoColors.systemGrey6,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-              color: isSelected ? Colors.white : CupertinoColors.black,
-              fontSize: 14, fontWeight: FontWeight.w500
-          ),
-        ),
-      ),
-    );
-  }
+  void _showTaskDialog(BuildContext context, WidgetRef ref, {Task? task}) {
+    final titleCtrl = TextEditingController(text: task?.title ?? '');
+    final descCtrl = TextEditingController(text: task?.description ?? '');
+    DateTime? pickedDate = task?.dueDate;
+    bool isRepeating = task?.isRepeating ?? false;
 
-  void _showAddTask(BuildContext context) {
-    final titleCtrl = TextEditingController();
-    DateTime? pickedDate;
-    bool isRepeating = false;
-
-    showCupertinoDialog(
+    showCupertinoModalPopup(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => CupertinoAlertDialog(
-          title: const Text('New Task'),
-          content: Column(
+        builder: (context, setState) => Container(
+          padding: const EdgeInsets.all(20),
+          height: 500,
+          decoration: const BoxDecoration(
+            color: CupertinoColors.systemBackground,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Gap(10),
-              CupertinoTextField(controller: titleCtrl, placeholder: 'Task name', autofocus: true),
-              const Gap(15),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(task == null ? 'New Task' : 'Edit Task', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  CupertinoButton(child: const Text('Save'), onPressed: () {
+                    if (titleCtrl.text.isNotEmpty) {
+                      if (task == null) {
+                        ref.read(appControllerProvider).addTask(titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
+                      } else {
+                        ref.read(appControllerProvider).updateTask(task, titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
+                      }
+                      Navigator.pop(ctx);
+                    }
+                  }),
+                ],
+              ),
+              const Gap(20),
+              CupertinoTextField(controller: titleCtrl, placeholder: 'Title', autofocus: task == null),
+              const Gap(12),
+              CupertinoTextField(controller: descCtrl, placeholder: 'Description', maxLines: 3),
+              const Gap(20),
+
+              // Options
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Due Date'),
                   CupertinoButton(
                     padding: EdgeInsets.zero,
-                    child: Text(pickedDate == null ? 'None' : DateFormat('MM/dd').format(pickedDate!)),
+                    child: Text(pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(pickedDate!)),
                     onPressed: () => _pickDate(context, (d) => setState(() => pickedDate = d)),
                   )
                 ],
               ),
+              const Divider(),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Repeat Daily'),
-                  CupertinoSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
+                  AdaptiveSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
                 ],
-              )
+              ),
             ],
           ),
-          actions: [
-            CupertinoDialogAction(isDestructiveAction: true, onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            CupertinoDialogAction(isDefaultAction: true, onPressed: () {
-              if (titleCtrl.text.isNotEmpty) {
-                final db = ref.read(databaseProvider);
-                db.into(db.tasks).insert(TasksCompanion.insert(
-                  title: titleCtrl.text,
-                  dueDate: Value(pickedDate),
-                  isRepeating: Value(isRepeating),
-                ));
-              }
-              Navigator.pop(ctx);
-            }, child: const Text('Add')),
-          ],
         ),
       ),
     );
@@ -516,7 +518,7 @@ class CalendarView extends ConsumerWidget {
                           return Positioned(
                             top: top, left: 60, right: 10, height: height,
                             child: GestureDetector(
-                              onTap: () => _editSegment(context, item),
+                              onTap: () => _editSegment(context, ref, item),
                               child: Container(
                                 decoration: BoxDecoration(
                                   color: color.withOpacity(0.5),
@@ -557,6 +559,7 @@ class CalendarView extends ConsumerWidget {
     // Calculate time from tap position
     final hour = (dy / 60).floor();
     final tapTime = DateTime(date.year, date.month, date.day, hour);
+    final endTime = tapTime.add(const Duration(hours: 1));
 
     // Pick activity
     final activitiesAsync = ref.read(activitiesStreamProvider);
@@ -568,7 +571,7 @@ class CalendarView extends ConsumerWidget {
             title: Text('Add Segment at $hour:00'),
             actions: activities.map((a) => CupertinoActionSheetAction(
               onPressed: () {
-                ref.read(appControllerProvider).addSegment(tapTime, a.id);
+                ref.read(appControllerProvider).addSegment(tapTime, endTime, a.id);
                 Navigator.pop(context);
               },
               child: Text(a.name, style: TextStyle(color: Color(int.parse(a.color)))),
@@ -579,17 +582,76 @@ class CalendarView extends ConsumerWidget {
     });
   }
 
-  void _editSegment(BuildContext context, SessionWithActivity item) {
-    // Simple delete/edit dialog
-    // For MVP: Just delete option or info
-    showCupertinoDialog(
+  void _editSegment(BuildContext context, WidgetRef ref, SessionWithActivity item) {
+    DateTime start = item.session.startTime;
+    DateTime end = item.session.endTime ?? DateTime.now();
+
+    showCupertinoModalPopup(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) => Container(
+          height: 400,
+          color: CupertinoColors.systemBackground,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(item.activity.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const Gap(20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Start'),
+                  CupertinoButton(child: Text(DateFormat('HH:mm').format(start)), onPressed: () {
+                    _pickTime(context, start, (d) => setState(() => start = d));
+                  }),
+                ],
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('End'),
+                  CupertinoButton(child: Text(DateFormat('HH:mm').format(end)), onPressed: () {
+                    _pickTime(context, end, (d) => setState(() => end = d));
+                  }),
+                ],
+              ),
+              const Spacer(),
+              Row(
+                children: [
+                  Expanded(
+                    child: CNButton(label: 'Delete', onPressed: () {
+                      ref.read(appControllerProvider).deleteSession(item.session.id);
+                      Navigator.pop(ctx);
+                    }),
+                  ),
+                  const Gap(10),
+                  Expanded(
+                    child: CNButton(label: 'Save', onPressed: () {
+                      ref.read(appControllerProvider).updateSegmentTime(item.session.id, start, end);
+                      Navigator.pop(ctx);
+                    }),
+                  ),
+                ],
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _pickTime(BuildContext context, DateTime initial, Function(DateTime) onPicked) {
+    showCupertinoModalPopup(
         context: context,
-        builder: (ctx) => CupertinoAlertDialog(
-            title: Text(item.activity.name),
-            content: Text('Duration: ${item.session.endTime?.difference(item.session.startTime).inMinutes ?? "?"} min'),
-            actions: [
-              CupertinoDialogAction(child: const Text('OK'), onPressed: () => Navigator.pop(ctx)),
-            ]
+        builder: (_) => Container(
+          height: 200, color: CupertinoColors.systemBackground,
+          child: CupertinoDatePicker(
+            mode: CupertinoDatePickerMode.time,
+            initialDateTime: initial,
+            use24hFormat: true,
+            onDateTimeChanged: onPicked,
+          ),
         )
     );
   }
