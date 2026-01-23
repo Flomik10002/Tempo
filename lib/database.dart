@@ -27,7 +27,6 @@ class Tasks extends Table {
   TextColumn get title => text()();
   BoolColumn get isCompleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
-  // Добавили это поле, так как оно используется в UI
   DateTimeColumn get dueDate => dateTime().nullable()();
 }
 
@@ -48,18 +47,23 @@ class AppDatabase extends _$AppDatabase {
       // Seed data
       await into(activities).insert(ActivitiesCompanion.insert(
           name: 'Coding',
-          color: '0xFF007AFF',
+          color: '0xFF007AFF', // Blue
           sortOrder: const Value(0)
       ));
       await into(activities).insert(ActivitiesCompanion.insert(
           name: 'Design',
-          color: '0xFFAF52DE',
+          color: '0xFFAF52DE', // Purple
           sortOrder: const Value(1)
       ));
       await into(activities).insert(ActivitiesCompanion.insert(
-          name: 'Workout',
-          color: '0xFF34C759',
+          name: 'Sport',
+          color: '0xFF34C759', // Green
           sortOrder: const Value(2)
+      ));
+      await into(activities).insert(ActivitiesCompanion.insert(
+          name: 'Rest',
+          color: '0xFFFF9500', // Orange
+          sortOrder: const Value(3)
       ));
     },
   );
@@ -67,9 +71,9 @@ class AppDatabase extends _$AppDatabase {
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
-    // Используем DocumentsDirectory - это работает и на iOS, и на Android без ошибок
     final dbFolder = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dbFolder.path, 'tempo_glass.sqlite'));
-    return NativeDatabase.createInBackground(file);
+    final file = File(p.join(dbFolder.path, 'tempo_v2.sqlite')); // v2 чтобы создать новый файл
+
+    return NativeDatabase(file);
   });
 }

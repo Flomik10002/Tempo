@@ -1,42 +1,47 @@
 import 'dart:async';
-import 'package:drift/drift.dart'; // Важно для Value и Companions
+import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:tempo/database.dart'; // Убедись, что файл называется database.dart
+import 'package:tempo/database.dart';
 
 // DB Access
-final databaseProvider = Provider<AppDatabase>((ref) => AppDatabase());
+final databaseProvider = Provider<AppDatabase>((ref) {
+  final db = AppDatabase();
+  ref.onDispose(() => db.close());
+  return db;
+});
 
-// --- Timer Logic ---
+// --- STREAMS ---
 
-// Активная сессия
+final tasksStreamProvider = StreamProvider.autoDispose<List<Task>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return (db.select(db.tasks)..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
+});
+
+final activitiesStreamProvider = StreamProvider.autoDispose<List<Activity>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return (db.select(db.activities)..orderBy([(t) => OrderingTerm.asc(t.sortOrder)])).watch();
+});
+
+// Timer Logic
 final activeSessionProvider = StreamProvider.autoDispose<Session?>((ref) {
   final db = ref.watch(databaseProvider);
   return (db.select(db.sessions)..where((s) => s.endTime.isNull())).watchSingleOrNull();
 });
 
-// Длительность текущей сессии (обновляется каждую секунду)
 final currentDurationProvider = Provider.autoDispose<Duration>((ref) {
-  final sessionAsync = ref.watch(activeSessionProvider);
+  final session = ref.watch(activeSessionProvider).value;
+  if (session == null) return Duration.zero;
 
-  // Триггер перерисовки каждую секунду
+  // Тикер для обновления UI
   ref.watch(tickerProvider);
 
-  return sessionAsync.when(
-    data: (session) {
-      if (session == null) return Duration.zero;
-      return DateTime.now().difference(session.startTime);
-    },
-    loading: () => Duration.zero,
-    error: (_, __) => Duration.zero,
-  );
+  return DateTime.now().difference(session.startTime);
 });
 
-// Тикер
 final tickerProvider = StreamProvider.autoDispose<int>((ref) {
   return Stream.periodic(const Duration(seconds: 1), (i) => i);
 });
 
-// Контроллер таймера
 class TimerController {
   final AppDatabase db;
   TimerController(this.db);
@@ -45,11 +50,9 @@ class TimerController {
     final active = await (db.select(db.sessions)..where((s) => s.endTime.isNull())).getSingleOrNull();
 
     if (active != null) {
-      // Stop current
       await (db.update(db.sessions)..where((s) => s.id.equals(active.id))).write(
         SessionsCompanion(endTime: Value(DateTime.now())),
       );
-      // Если нажали на другую активность — запускаем её сразу
       if (active.activityId != activityId) {
         await _start(activityId);
       }
