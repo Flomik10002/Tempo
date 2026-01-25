@@ -1,8 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider, Material, Icons, DefaultMaterialLocalizations, ReorderableListView, MediaQuery;
+import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider, Material, Icons, DefaultMaterialLocalizations, ReorderableListView, MediaQuery, ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cupertino_native/cupertino_native.dart';
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:gap/gap.dart';
 import 'package:glass/glass.dart';
 import 'package:drift/drift.dart' show Value;
@@ -16,25 +17,28 @@ void main() {
   runApp(const ProviderScope(child: TempoApp()));
 }
 
-class TempoApp extends StatelessWidget {
+class TempoApp extends ConsumerWidget {
   const TempoApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return const CupertinoApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+
+    return CupertinoApp(
       title: 'Tempo',
       debugShowCheckedModeBanner: false,
       theme: CupertinoThemeData(
-        brightness: Brightness.light,
-        primaryColor: Color(0xFF007AFF),
-        scaffoldBackgroundColor: Color(0xFFF2F2F7),
+        brightness: themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
+        primaryColor: const Color(0xFF007AFF),
+        scaffoldBackgroundColor: themeMode == ThemeMode.dark ? const Color(0xFF000000) : const Color(0xFFF2F2F7),
+        barBackgroundColor: themeMode == ThemeMode.dark ? const Color(0xFF1C1C1E) : const Color(0xF0F9F9F9),
       ),
-      localizationsDelegates: [
+      localizationsDelegates: const [
         DefaultMaterialLocalizations.delegate,
         DefaultCupertinoLocalizations.delegate,
         DefaultWidgetsLocalizations.delegate,
       ],
-      home: RootLayout(),
+      home: const RootLayout(),
     );
   }
 }
@@ -48,13 +52,17 @@ class RootLayout extends StatefulWidget {
 
 class _RootLayoutState extends State<RootLayout> {
   int _index = 0;
-  final _pages = const [HomeView(), TasksView(), CalendarView(), BodyMapView()];
+  final _pages = const [HomeView(), TasksView(), CalendarView(), BodyMapView(), SettingsView()];
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        Positioned.fill(child: CupertinoPageScaffold(child: _pages[_index])),
+        Positioned.fill(
+          child: CupertinoPageScaffold(
+            child: _pages[_index],
+          ),
+        ),
         Positioned(
           left: 0, right: 0, bottom: 0,
           child: CNTabBar(
@@ -65,6 +73,7 @@ class _RootLayoutState extends State<RootLayout> {
               CNTabBarItem(label: 'Tasks', icon: CNSymbol('checklist')),
               CNTabBarItem(label: 'Calendar', icon: CNSymbol('calendar')),
               CNTabBarItem(label: 'Body', icon: CNSymbol('figure.arms.open')),
+              CNTabBarItem(label: 'Settings', icon: CNSymbol('gear')),
             ],
           ),
         ),
@@ -90,7 +99,7 @@ class HomeView extends ConsumerWidget {
         child: Column(
           children: [
             const Gap(20),
-            // Fixed height container to prevent jumping UI
+            // Fixed height container
             SizedBox(
               height: 220,
               child: GlassCard(
@@ -120,7 +129,8 @@ class HomeView extends ConsumerWidget {
               ),
             ),
             const Gap(30),
-            // Header with Gear Icon
+
+            // Header with properly working button
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -128,14 +138,19 @@ class HomeView extends ConsumerWidget {
                 CupertinoButton(
                   padding: EdgeInsets.zero,
                   child: const CNIcon(symbol: CNSymbol('gear'), color: CupertinoColors.systemGrey),
-                  // Fix: rootNavigator: true ensure it opens over everything
-                  onPressed: () => Navigator.of(context, rootNavigator: true).push(CupertinoPageRoute(builder: (_) => const ActivitiesManagerPage())),
+                  onPressed: () {
+                    // Используем rootNavigator, чтобы открыть поверх табов
+                    Navigator.of(context, rootNavigator: true).push(
+                      CupertinoPageRoute(builder: (_) => const ActivitiesManagerPage()),
+                    );
+                  },
                 ),
               ],
             ),
             const Gap(10),
             Expanded(
               child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 child: activitiesAsync.when(
                   data: (activities) => Wrap(
                     spacing: 12, runSpacing: 12,
@@ -261,20 +276,19 @@ class ActivitiesManagerPage extends ConsumerWidget {
     String selectedColor = activity?.color ?? '0xFF007AFF';
     final colors = ['0xFF007AFF', '0xFFFF2D55', '0xFF34C759', '0xFFFF9500', '0xFFAF52DE', '0xFF5856D6', '0xFF8E8E93', '0xFF000000'];
 
-    // Fix: Using Dialog instead of ModalPopup to center it and handle keyboard
     showCupertinoDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
           child: Center(
-            child: Material( // Required for some widgets
+            child: Material(
               color: Colors.transparent,
               child: Container(
                 width: 300,
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: CupertinoColors.systemBackground,
+                  color: CupertinoColors.systemBackground.resolveFrom(context),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Column(
@@ -364,7 +378,6 @@ class _TasksViewState extends ConsumerState<TasksView> {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: SizedBox(
               width: double.infinity,
-              // Fix: Replaced AdaptiveSegmentedControl with standard Cupertino to prevent crashes
               child: CupertinoSlidingSegmentedControl<int>(
                 groupValue: _filter.index,
                 children: const {
@@ -407,7 +420,6 @@ class _TasksViewState extends ConsumerState<TasksView> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Manual Checkbox to avoid dependency crash
                               GestureDetector(
                                 onTap: () => ref.read(appControllerProvider).toggleTask(task),
                                 child: Container(
@@ -470,7 +482,6 @@ class _TasksViewState extends ConsumerState<TasksView> {
     DateTime? pickedDate = task?.dueDate;
     bool isRepeating = task?.isRepeating ?? false;
 
-    // Fix: Using Dialog instead of ModalPopup for better editing experience
     showCupertinoDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -483,7 +494,7 @@ class _TasksViewState extends ConsumerState<TasksView> {
                 width: 320,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: CupertinoColors.systemBackground,
+                  color: CupertinoColors.systemBackground.resolveFrom(context),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Column(
@@ -513,7 +524,7 @@ class _TasksViewState extends ConsumerState<TasksView> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Repeat Daily'),
-                        CupertinoSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
+                        AdaptiveSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
                       ],
                     ),
                     const Gap(20),
@@ -550,7 +561,7 @@ class _TasksViewState extends ConsumerState<TasksView> {
     showCupertinoModalPopup(
         context: context,
         builder: (_) => Container(
-          height: 250, color: CupertinoColors.systemBackground,
+          height: 250, color: CupertinoColors.systemBackground.resolveFrom(context),
           child: CupertinoDatePicker(
             mode: CupertinoDatePickerMode.date,
             onDateTimeChanged: onPicked,
@@ -578,11 +589,16 @@ class CalendarView extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Row(
               children: [
-                Text(DateFormat.yMMMMd().format(selectedDate), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  child: const Text("Today"),
+                  onPressed: () => ref.read(selectedDateProvider.notifier).state = DateTime.now(),
+                ),
+                const Spacer(),
+                Text(DateFormat.yMMMMd().format(selectedDate), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const Spacer(),
                 CNButton.icon(
                   icon: const CNSymbol('plus'),
-                  // Fix: passed context correctly
                   onPressed: () => _addManualLog(context, ref, selectedDate),
                 ),
               ],
@@ -627,12 +643,13 @@ class CalendarView extends ConsumerWidget {
           // Timeline
           Expanded(
             child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 120), // Extra padding for visual look
               child: SizedBox(
-                height: 24 * 60.0, // 60px per hour
+                height: 25 * 60.0, // 0 to 24 (25 hours to show 24:00)
                 child: Stack(
                   children: [
                     // Background Lines
-                    for (int i = 0; i < 24; i++)
+                    for (int i = 0; i <= 24; i++)
                       Positioned(
                         top: i * 60.0, left: 0, right: 0,
                         child: Container(
@@ -640,7 +657,7 @@ class CalendarView extends ConsumerWidget {
                           decoration: BoxDecoration(border: Border(top: BorderSide(color: CupertinoColors.systemGrey5))),
                           child: Padding(
                             padding: const EdgeInsets.only(left: 10, top: 5),
-                            child: Text('$i:00', style: const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey)),
+                            child: Text('${i.toString().padLeft(2, '0')}:00', style: const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey)),
                           ),
                         ),
                       ),
@@ -701,17 +718,16 @@ class CalendarView extends ConsumerWidget {
     return diff.toDouble().clamp(20.0, 1440.0); // Minimum 20px height
   }
 
-  // Quick add by tapping timeline
   void _onTapEmpty(BuildContext context, WidgetRef ref, double dy, DateTime date) {
     final hour = (dy / 60).floor();
+    if(hour >= 24) return;
+
     final tapTime = DateTime(date.year, date.month, date.day, hour);
     _showAddDialog(context, ref, tapTime);
   }
 
-  // Manual add button
   void _addManualLog(BuildContext context, WidgetRef ref, DateTime date) {
     final now = DateTime.now();
-    // Default to current time, but on the selected date
     final tapTime = DateTime(date.year, date.month, date.day, now.hour, now.minute);
     _showAddDialog(context, ref, tapTime);
   }
@@ -719,11 +735,14 @@ class CalendarView extends ConsumerWidget {
   void _showAddDialog(BuildContext context, WidgetRef ref, DateTime start) {
     final activitiesAsync = ref.read(activitiesStreamProvider);
     activitiesAsync.whenData((activities) {
-      if(activities.isEmpty) return;
+      if(activities.isEmpty) {
+        _showNoActivitiesAlert(context);
+        return;
+      }
       showCupertinoModalPopup(
           context: context,
           builder: (_) => CupertinoActionSheet(
-            title: Text('Log Activity starting at ${DateFormat('HH:mm').format(start)}'),
+            title: Text('Log Activity at ${DateFormat('HH:mm').format(start)}'),
             actions: activities.map((a) => CupertinoActionSheetAction(
               onPressed: () {
                 ref.read(appControllerProvider).addSegment(start, start.add(const Duration(hours: 1)), a.id);
@@ -737,6 +756,17 @@ class CalendarView extends ConsumerWidget {
     });
   }
 
+  void _showNoActivitiesAlert(BuildContext context) {
+    showCupertinoDialog(
+        context: context,
+        builder: (ctx) => CupertinoAlertDialog(
+          title: const Text("No Activities"),
+          content: const Text("Create activities in the Timer tab first."),
+          actions: [CupertinoDialogAction(child: const Text("OK"), onPressed: () => Navigator.pop(ctx))],
+        )
+    );
+  }
+
   void _editSegment(BuildContext context, WidgetRef ref, SessionWithActivity item) {
     DateTime start = item.session.startTime;
     DateTime end = item.session.endTime ?? DateTime.now();
@@ -746,7 +776,7 @@ class CalendarView extends ConsumerWidget {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => Container(
           height: 400,
-          color: CupertinoColors.systemBackground,
+          color: CupertinoColors.systemBackground.resolveFrom(context),
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -800,7 +830,7 @@ class CalendarView extends ConsumerWidget {
     showCupertinoModalPopup(
         context: context,
         builder: (_) => Container(
-          height: 200, color: CupertinoColors.systemBackground,
+          height: 200, color: CupertinoColors.systemBackground.resolveFrom(context),
           child: CupertinoDatePicker(
             mode: CupertinoDatePickerMode.time,
             initialDateTime: initial,
@@ -826,6 +856,46 @@ class BodyMapView extends StatelessWidget {
   }
 }
 
+// --- 5. SETTINGS ---
+
+class SettingsView extends ConsumerWidget {
+  const SettingsView({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(themeModeProvider);
+    final isDark = theme == ThemeMode.dark;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Settings', style: CupertinoTheme.of(context).textTheme.navLargeTitleTextStyle),
+            const Gap(30),
+            GlassCard(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Dark Mode', style: TextStyle(fontSize: 17)),
+                  AdaptiveSwitch(
+                    value: isDark,
+                    onChanged: (val) {
+                      ref.read(themeModeProvider.notifier).state = val ? ThemeMode.dark : ThemeMode.light;
+                    },
+                  )
+                ],
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // --- HELPERS ---
 
 class GlassCard extends StatelessWidget {
@@ -838,13 +908,13 @@ class GlassCard extends StatelessWidget {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: CupertinoColors.white.withOpacity(0.5),
+        color: CupertinoColors.systemBackground.resolveFrom(context).withOpacity(0.5),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: CupertinoColors.white.withOpacity(0.4), width: 1.5),
+        border: Border.all(color: CupertinoColors.systemGrey4.resolveFrom(context).withOpacity(0.4), width: 1.5),
         boxShadow: [BoxShadow(color: const Color(0xFF000000).withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
       ),
       child: child,
-    ).asGlass(tintColor: Colors.white, clipBorderRadius: BorderRadius.circular(24), blurX: 10, blurY: 10);
+    ).asGlass(tintColor: CupertinoColors.systemBackground.resolveFrom(context), clipBorderRadius: BorderRadius.circular(24), blurX: 10, blurY: 10);
   }
 }
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:drift/drift.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tempo/database.dart';
 
@@ -10,15 +11,16 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   return db;
 });
 
-// --- ACTIVITIES ---
+// --- THEME ---
+final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);
 
+// --- ACTIVITIES ---
 final activitiesStreamProvider = StreamProvider.autoDispose<List<Activity>>((ref) {
   final db = ref.watch(databaseProvider);
   return (db.select(db.activities)..orderBy([(t) => OrderingTerm.asc(t.sortOrder)])).watch();
 });
 
 // --- TASKS FILTERS ---
-
 enum TaskFilter { active, scheduled, repeating, done }
 
 final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>((ref, filter) {
@@ -27,19 +29,15 @@ final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>(
 
   switch (filter) {
     case TaskFilter.active:
-    // Активные: не выполненные (исключаем done)
       query.where((t) => t.isCompleted.not());
       break;
     case TaskFilter.scheduled:
-    // Запланированные: не выполненные И есть дата
       query.where((t) => t.isCompleted.not() & t.dueDate.isNotNull());
       break;
     case TaskFilter.repeating:
-    // Повторяющиеся: не выполненные И repeating=true
       query.where((t) => t.isCompleted.not() & t.isRepeating);
       break;
     case TaskFilter.done:
-    // Выполненные: ТОЛЬКО выполненные
       query.where((t) => t.isCompleted);
       break;
   }
@@ -47,13 +45,11 @@ final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>(
   return (query..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
 });
 
-// --- CALENDAR & SESSIONS ---
-
+// --- CALENDAR ---
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
 final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWithActivity>, DateTime>((ref, date) {
   final db = ref.watch(databaseProvider);
-
   final startOfDay = DateTime(date.year, date.month, date.day);
   final endOfDay = startOfDay.add(const Duration(days: 1));
 
@@ -68,10 +64,7 @@ final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWi
 
   return query.watch().map((rows) {
     return rows.map((row) {
-      // Activity может быть null если удалили активность без каскада (но у нас каскад)
-      // На всякий случай фильтруем
       if (row.readTableOrNull(db.activities) == null) return null;
-
       return SessionWithActivity(
         session: row.readTable(db.sessions),
         activity: row.readTable(db.activities),
@@ -86,8 +79,7 @@ class SessionWithActivity {
   SessionWithActivity({required this.session, required this.activity});
 }
 
-// --- TIMER LOGIC ---
-
+// --- TIMER ---
 final activeSessionProvider = StreamProvider.autoDispose<Session?>((ref) {
   final db = ref.watch(databaseProvider);
   return (db.select(db.sessions)..where((s) => s.endTime.isNull())).watchSingleOrNull();
@@ -105,7 +97,6 @@ final tickerProvider = StreamProvider.autoDispose<int>((ref) {
 });
 
 // --- CONTROLLER ---
-
 class AppController {
   final AppDatabase db;
   AppController(this.db);
@@ -137,7 +128,6 @@ class AppController {
   }
 
   Future<void> deleteActivity(int id) async {
-    // Cascade delete настроен в БД, сессии удалятся сами
     await (db.delete(db.activities)..where((a) => a.id.equals(id))).go();
   }
 

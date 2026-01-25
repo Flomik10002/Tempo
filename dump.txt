@@ -12,13 +12,12 @@ part 'database.g.dart';
 class Activities extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text()();
-  TextColumn get color => text()(); // Hex 0xFF...
+  TextColumn get color => text()();
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
 }
 
 class Sessions extends Table {
   IntColumn get id => integer().autoIncrement()();
-  // CASCADE: Если удалить активность, удалится и история (чтобы не было ошибок)
   IntColumn get activityId => integer().references(Activities, #id, onDelete: KeyAction.cascade)();
   DateTimeColumn get startTime => dateTime()();
   DateTimeColumn get endTime => dateTime().nullable()();
@@ -47,17 +46,11 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (Migrator m) async {
       await m.createAll();
-      // Default Data
       await into(activities).insert(ActivitiesCompanion.insert(name: 'Coding', color: '0xFF007AFF', sortOrder: const Value(0)));
-      await into(activities).insert(ActivitiesCompanion.insert(name: 'Sport', color: '0xFF34C759', sortOrder: const Value(2)));
-      await into(activities).insert(ActivitiesCompanion.insert(name: 'Rest', color: '0xFFFF9500', sortOrder: const Value(3)));
-    },
-    onUpgrade: (Migrator m, int from, int to) async {
-      // Здесь в будущем будем описывать миграции (например, добавление колонок),
-      // чтобы данные не терялись при обновлении версии schemaVersion.
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Sport', color: '0xFF34C759', sortOrder: const Value(1)));
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Rest', color: '0xFFFF9500', sortOrder: const Value(2)));
     },
     beforeOpen: (details) async {
-      // Включаем каскадное удаление (SQLite foreign keys)
       await customStatement('PRAGMA foreign_keys = ON');
     },
   );
@@ -66,7 +59,6 @@ class AppDatabase extends _$AppDatabase {
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dbFolder = await getApplicationDocumentsDirectory();
-    // Стабильное имя файла. Не меняй его в будущих версиях, если хочешь сохранить данные.
     final file = File(p.join(dbFolder.path, 'tempo_storage.sqlite'));
     return NativeDatabase(file);
   });
@@ -77,6 +69,7 @@ LazyDatabase _openConnection() {
 /home/flomik/StudioProjects/Tempo/lib/logic.dart logic.dart
 import 'dart:async';
 import 'package:drift/drift.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tempo/database.dart';
 
@@ -87,15 +80,16 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   return db;
 });
 
-// --- ACTIVITIES ---
+// --- THEME ---
+final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);
 
+// --- ACTIVITIES ---
 final activitiesStreamProvider = StreamProvider.autoDispose<List<Activity>>((ref) {
   final db = ref.watch(databaseProvider);
   return (db.select(db.activities)..orderBy([(t) => OrderingTerm.asc(t.sortOrder)])).watch();
 });
 
 // --- TASKS FILTERS ---
-
 enum TaskFilter { active, scheduled, repeating, done }
 
 final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>((ref, filter) {
@@ -104,19 +98,15 @@ final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>(
 
   switch (filter) {
     case TaskFilter.active:
-    // Активные: не выполненные (исключаем done)
       query.where((t) => t.isCompleted.not());
       break;
     case TaskFilter.scheduled:
-    // Запланированные: не выполненные И есть дата
       query.where((t) => t.isCompleted.not() & t.dueDate.isNotNull());
       break;
     case TaskFilter.repeating:
-    // Повторяющиеся: не выполненные И repeating=true
       query.where((t) => t.isCompleted.not() & t.isRepeating);
       break;
     case TaskFilter.done:
-    // Выполненные: ТОЛЬКО выполненные
       query.where((t) => t.isCompleted);
       break;
   }
@@ -124,13 +114,11 @@ final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>(
   return (query..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
 });
 
-// --- CALENDAR & SESSIONS ---
-
+// --- CALENDAR ---
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
 final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWithActivity>, DateTime>((ref, date) {
   final db = ref.watch(databaseProvider);
-
   final startOfDay = DateTime(date.year, date.month, date.day);
   final endOfDay = startOfDay.add(const Duration(days: 1));
 
@@ -145,10 +133,7 @@ final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWi
 
   return query.watch().map((rows) {
     return rows.map((row) {
-      // Activity может быть null если удалили активность без каскада (но у нас каскад)
-      // На всякий случай фильтруем
       if (row.readTableOrNull(db.activities) == null) return null;
-
       return SessionWithActivity(
         session: row.readTable(db.sessions),
         activity: row.readTable(db.activities),
@@ -163,8 +148,7 @@ class SessionWithActivity {
   SessionWithActivity({required this.session, required this.activity});
 }
 
-// --- TIMER LOGIC ---
-
+// --- TIMER ---
 final activeSessionProvider = StreamProvider.autoDispose<Session?>((ref) {
   final db = ref.watch(databaseProvider);
   return (db.select(db.sessions)..where((s) => s.endTime.isNull())).watchSingleOrNull();
@@ -182,7 +166,6 @@ final tickerProvider = StreamProvider.autoDispose<int>((ref) {
 });
 
 // --- CONTROLLER ---
-
 class AppController {
   final AppDatabase db;
   AppController(this.db);
@@ -214,7 +197,6 @@ class AppController {
   }
 
   Future<void> deleteActivity(int id) async {
-    // Cascade delete настроен в БД, сессии удалятся сами
     await (db.delete(db.activities)..where((a) => a.id.equals(id))).go();
   }
 
@@ -269,1632 +251,10 @@ final appControllerProvider = Provider((ref) => AppController(ref.watch(database
 
 ================================================================================
 
-/home/flomik/StudioProjects/Tempo/lib/database.g.dart database.g.dart
-// GENERATED CODE - DO NOT MODIFY BY HAND
-
-part of 'database.dart';
-
-// ignore_for_file: type=lint
-class $ActivitiesTable extends Activities
-    with TableInfo<$ActivitiesTable, Activity> {
-  @override
-  final GeneratedDatabase attachedDatabase;
-  final String? _alias;
-  $ActivitiesTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _idMeta = const VerificationMeta('id');
-  @override
-  late final GeneratedColumn<int> id = GeneratedColumn<int>(
-      'id', aliasedName, false,
-      hasAutoIncrement: true,
-      type: DriftSqlType.int,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
-  static const VerificationMeta _nameMeta = const VerificationMeta('name');
-  @override
-  late final GeneratedColumn<String> name = GeneratedColumn<String>(
-      'name', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _colorMeta = const VerificationMeta('color');
-  @override
-  late final GeneratedColumn<String> color = GeneratedColumn<String>(
-      'color', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _sortOrderMeta =
-      const VerificationMeta('sortOrder');
-  @override
-  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
-      'sort_order', aliasedName, false,
-      type: DriftSqlType.int,
-      requiredDuringInsert: false,
-      defaultValue: const Constant(0));
-  @override
-  List<GeneratedColumn> get $columns => [id, name, color, sortOrder];
-  @override
-  String get aliasedName => _alias ?? actualTableName;
-  @override
-  String get actualTableName => $name;
-  static const String $name = 'activities';
-  @override
-  VerificationContext validateIntegrity(Insertable<Activity> instance,
-      {bool isInserting = false}) {
-    final context = VerificationContext();
-    final data = instance.toColumns(true);
-    if (data.containsKey('id')) {
-      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
-    }
-    if (data.containsKey('name')) {
-      context.handle(
-          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
-    } else if (isInserting) {
-      context.missing(_nameMeta);
-    }
-    if (data.containsKey('color')) {
-      context.handle(
-          _colorMeta, color.isAcceptableOrUnknown(data['color']!, _colorMeta));
-    } else if (isInserting) {
-      context.missing(_colorMeta);
-    }
-    if (data.containsKey('sort_order')) {
-      context.handle(_sortOrderMeta,
-          sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta));
-    }
-    return context;
-  }
-
-  @override
-  Set<GeneratedColumn> get $primaryKey => {id};
-  @override
-  Activity map(Map<String, dynamic> data, {String? tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return Activity(
-      id: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
-      name: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
-      color: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}color'])!,
-      sortOrder: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}sort_order'])!,
-    );
-  }
-
-  @override
-  $ActivitiesTable createAlias(String alias) {
-    return $ActivitiesTable(attachedDatabase, alias);
-  }
-}
-
-class Activity extends DataClass implements Insertable<Activity> {
-  final int id;
-  final String name;
-  final String color;
-  final int sortOrder;
-  const Activity(
-      {required this.id,
-      required this.name,
-      required this.color,
-      required this.sortOrder});
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['id'] = Variable<int>(id);
-    map['name'] = Variable<String>(name);
-    map['color'] = Variable<String>(color);
-    map['sort_order'] = Variable<int>(sortOrder);
-    return map;
-  }
-
-  ActivitiesCompanion toCompanion(bool nullToAbsent) {
-    return ActivitiesCompanion(
-      id: Value(id),
-      name: Value(name),
-      color: Value(color),
-      sortOrder: Value(sortOrder),
-    );
-  }
-
-  factory Activity.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return Activity(
-      id: serializer.fromJson<int>(json['id']),
-      name: serializer.fromJson<String>(json['name']),
-      color: serializer.fromJson<String>(json['color']),
-      sortOrder: serializer.fromJson<int>(json['sortOrder']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'name': serializer.toJson<String>(name),
-      'color': serializer.toJson<String>(color),
-      'sortOrder': serializer.toJson<int>(sortOrder),
-    };
-  }
-
-  Activity copyWith({int? id, String? name, String? color, int? sortOrder}) =>
-      Activity(
-        id: id ?? this.id,
-        name: name ?? this.name,
-        color: color ?? this.color,
-        sortOrder: sortOrder ?? this.sortOrder,
-      );
-  Activity copyWithCompanion(ActivitiesCompanion data) {
-    return Activity(
-      id: data.id.present ? data.id.value : this.id,
-      name: data.name.present ? data.name.value : this.name,
-      color: data.color.present ? data.color.value : this.color,
-      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('Activity(')
-          ..write('id: $id, ')
-          ..write('name: $name, ')
-          ..write('color: $color, ')
-          ..write('sortOrder: $sortOrder')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(id, name, color, sortOrder);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is Activity &&
-          other.id == this.id &&
-          other.name == this.name &&
-          other.color == this.color &&
-          other.sortOrder == this.sortOrder);
-}
-
-class ActivitiesCompanion extends UpdateCompanion<Activity> {
-  final Value<int> id;
-  final Value<String> name;
-  final Value<String> color;
-  final Value<int> sortOrder;
-  const ActivitiesCompanion({
-    this.id = const Value.absent(),
-    this.name = const Value.absent(),
-    this.color = const Value.absent(),
-    this.sortOrder = const Value.absent(),
-  });
-  ActivitiesCompanion.insert({
-    this.id = const Value.absent(),
-    required String name,
-    required String color,
-    this.sortOrder = const Value.absent(),
-  })  : name = Value(name),
-        color = Value(color);
-  static Insertable<Activity> custom({
-    Expression<int>? id,
-    Expression<String>? name,
-    Expression<String>? color,
-    Expression<int>? sortOrder,
-  }) {
-    return RawValuesInsertable({
-      if (id != null) 'id': id,
-      if (name != null) 'name': name,
-      if (color != null) 'color': color,
-      if (sortOrder != null) 'sort_order': sortOrder,
-    });
-  }
-
-  ActivitiesCompanion copyWith(
-      {Value<int>? id,
-      Value<String>? name,
-      Value<String>? color,
-      Value<int>? sortOrder}) {
-    return ActivitiesCompanion(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      color: color ?? this.color,
-      sortOrder: sortOrder ?? this.sortOrder,
-    );
-  }
-
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    if (id.present) {
-      map['id'] = Variable<int>(id.value);
-    }
-    if (name.present) {
-      map['name'] = Variable<String>(name.value);
-    }
-    if (color.present) {
-      map['color'] = Variable<String>(color.value);
-    }
-    if (sortOrder.present) {
-      map['sort_order'] = Variable<int>(sortOrder.value);
-    }
-    return map;
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('ActivitiesCompanion(')
-          ..write('id: $id, ')
-          ..write('name: $name, ')
-          ..write('color: $color, ')
-          ..write('sortOrder: $sortOrder')
-          ..write(')'))
-        .toString();
-  }
-}
-
-class $SessionsTable extends Sessions with TableInfo<$SessionsTable, Session> {
-  @override
-  final GeneratedDatabase attachedDatabase;
-  final String? _alias;
-  $SessionsTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _idMeta = const VerificationMeta('id');
-  @override
-  late final GeneratedColumn<int> id = GeneratedColumn<int>(
-      'id', aliasedName, false,
-      hasAutoIncrement: true,
-      type: DriftSqlType.int,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
-  static const VerificationMeta _activityIdMeta =
-      const VerificationMeta('activityId');
-  @override
-  late final GeneratedColumn<int> activityId = GeneratedColumn<int>(
-      'activity_id', aliasedName, false,
-      type: DriftSqlType.int,
-      requiredDuringInsert: true,
-      defaultConstraints: GeneratedColumn.constraintIsAlways(
-          'REFERENCES activities (id) ON DELETE CASCADE'));
-  static const VerificationMeta _startTimeMeta =
-      const VerificationMeta('startTime');
-  @override
-  late final GeneratedColumn<DateTime> startTime = GeneratedColumn<DateTime>(
-      'start_time', aliasedName, false,
-      type: DriftSqlType.dateTime, requiredDuringInsert: true);
-  static const VerificationMeta _endTimeMeta =
-      const VerificationMeta('endTime');
-  @override
-  late final GeneratedColumn<DateTime> endTime = GeneratedColumn<DateTime>(
-      'end_time', aliasedName, true,
-      type: DriftSqlType.dateTime, requiredDuringInsert: false);
-  @override
-  List<GeneratedColumn> get $columns => [id, activityId, startTime, endTime];
-  @override
-  String get aliasedName => _alias ?? actualTableName;
-  @override
-  String get actualTableName => $name;
-  static const String $name = 'sessions';
-  @override
-  VerificationContext validateIntegrity(Insertable<Session> instance,
-      {bool isInserting = false}) {
-    final context = VerificationContext();
-    final data = instance.toColumns(true);
-    if (data.containsKey('id')) {
-      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
-    }
-    if (data.containsKey('activity_id')) {
-      context.handle(
-          _activityIdMeta,
-          activityId.isAcceptableOrUnknown(
-              data['activity_id']!, _activityIdMeta));
-    } else if (isInserting) {
-      context.missing(_activityIdMeta);
-    }
-    if (data.containsKey('start_time')) {
-      context.handle(_startTimeMeta,
-          startTime.isAcceptableOrUnknown(data['start_time']!, _startTimeMeta));
-    } else if (isInserting) {
-      context.missing(_startTimeMeta);
-    }
-    if (data.containsKey('end_time')) {
-      context.handle(_endTimeMeta,
-          endTime.isAcceptableOrUnknown(data['end_time']!, _endTimeMeta));
-    }
-    return context;
-  }
-
-  @override
-  Set<GeneratedColumn> get $primaryKey => {id};
-  @override
-  Session map(Map<String, dynamic> data, {String? tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return Session(
-      id: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
-      activityId: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}activity_id'])!,
-      startTime: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}start_time'])!,
-      endTime: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}end_time']),
-    );
-  }
-
-  @override
-  $SessionsTable createAlias(String alias) {
-    return $SessionsTable(attachedDatabase, alias);
-  }
-}
-
-class Session extends DataClass implements Insertable<Session> {
-  final int id;
-  final int activityId;
-  final DateTime startTime;
-  final DateTime? endTime;
-  const Session(
-      {required this.id,
-      required this.activityId,
-      required this.startTime,
-      this.endTime});
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['id'] = Variable<int>(id);
-    map['activity_id'] = Variable<int>(activityId);
-    map['start_time'] = Variable<DateTime>(startTime);
-    if (!nullToAbsent || endTime != null) {
-      map['end_time'] = Variable<DateTime>(endTime);
-    }
-    return map;
-  }
-
-  SessionsCompanion toCompanion(bool nullToAbsent) {
-    return SessionsCompanion(
-      id: Value(id),
-      activityId: Value(activityId),
-      startTime: Value(startTime),
-      endTime: endTime == null && nullToAbsent
-          ? const Value.absent()
-          : Value(endTime),
-    );
-  }
-
-  factory Session.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return Session(
-      id: serializer.fromJson<int>(json['id']),
-      activityId: serializer.fromJson<int>(json['activityId']),
-      startTime: serializer.fromJson<DateTime>(json['startTime']),
-      endTime: serializer.fromJson<DateTime?>(json['endTime']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'activityId': serializer.toJson<int>(activityId),
-      'startTime': serializer.toJson<DateTime>(startTime),
-      'endTime': serializer.toJson<DateTime?>(endTime),
-    };
-  }
-
-  Session copyWith(
-          {int? id,
-          int? activityId,
-          DateTime? startTime,
-          Value<DateTime?> endTime = const Value.absent()}) =>
-      Session(
-        id: id ?? this.id,
-        activityId: activityId ?? this.activityId,
-        startTime: startTime ?? this.startTime,
-        endTime: endTime.present ? endTime.value : this.endTime,
-      );
-  Session copyWithCompanion(SessionsCompanion data) {
-    return Session(
-      id: data.id.present ? data.id.value : this.id,
-      activityId:
-          data.activityId.present ? data.activityId.value : this.activityId,
-      startTime: data.startTime.present ? data.startTime.value : this.startTime,
-      endTime: data.endTime.present ? data.endTime.value : this.endTime,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('Session(')
-          ..write('id: $id, ')
-          ..write('activityId: $activityId, ')
-          ..write('startTime: $startTime, ')
-          ..write('endTime: $endTime')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(id, activityId, startTime, endTime);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is Session &&
-          other.id == this.id &&
-          other.activityId == this.activityId &&
-          other.startTime == this.startTime &&
-          other.endTime == this.endTime);
-}
-
-class SessionsCompanion extends UpdateCompanion<Session> {
-  final Value<int> id;
-  final Value<int> activityId;
-  final Value<DateTime> startTime;
-  final Value<DateTime?> endTime;
-  const SessionsCompanion({
-    this.id = const Value.absent(),
-    this.activityId = const Value.absent(),
-    this.startTime = const Value.absent(),
-    this.endTime = const Value.absent(),
-  });
-  SessionsCompanion.insert({
-    this.id = const Value.absent(),
-    required int activityId,
-    required DateTime startTime,
-    this.endTime = const Value.absent(),
-  })  : activityId = Value(activityId),
-        startTime = Value(startTime);
-  static Insertable<Session> custom({
-    Expression<int>? id,
-    Expression<int>? activityId,
-    Expression<DateTime>? startTime,
-    Expression<DateTime>? endTime,
-  }) {
-    return RawValuesInsertable({
-      if (id != null) 'id': id,
-      if (activityId != null) 'activity_id': activityId,
-      if (startTime != null) 'start_time': startTime,
-      if (endTime != null) 'end_time': endTime,
-    });
-  }
-
-  SessionsCompanion copyWith(
-      {Value<int>? id,
-      Value<int>? activityId,
-      Value<DateTime>? startTime,
-      Value<DateTime?>? endTime}) {
-    return SessionsCompanion(
-      id: id ?? this.id,
-      activityId: activityId ?? this.activityId,
-      startTime: startTime ?? this.startTime,
-      endTime: endTime ?? this.endTime,
-    );
-  }
-
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    if (id.present) {
-      map['id'] = Variable<int>(id.value);
-    }
-    if (activityId.present) {
-      map['activity_id'] = Variable<int>(activityId.value);
-    }
-    if (startTime.present) {
-      map['start_time'] = Variable<DateTime>(startTime.value);
-    }
-    if (endTime.present) {
-      map['end_time'] = Variable<DateTime>(endTime.value);
-    }
-    return map;
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('SessionsCompanion(')
-          ..write('id: $id, ')
-          ..write('activityId: $activityId, ')
-          ..write('startTime: $startTime, ')
-          ..write('endTime: $endTime')
-          ..write(')'))
-        .toString();
-  }
-}
-
-class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
-  @override
-  final GeneratedDatabase attachedDatabase;
-  final String? _alias;
-  $TasksTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _idMeta = const VerificationMeta('id');
-  @override
-  late final GeneratedColumn<int> id = GeneratedColumn<int>(
-      'id', aliasedName, false,
-      hasAutoIncrement: true,
-      type: DriftSqlType.int,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
-  static const VerificationMeta _titleMeta = const VerificationMeta('title');
-  @override
-  late final GeneratedColumn<String> title = GeneratedColumn<String>(
-      'title', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _descriptionMeta =
-      const VerificationMeta('description');
-  @override
-  late final GeneratedColumn<String> description = GeneratedColumn<String>(
-      'description', aliasedName, true,
-      type: DriftSqlType.string, requiredDuringInsert: false);
-  static const VerificationMeta _isCompletedMeta =
-      const VerificationMeta('isCompleted');
-  @override
-  late final GeneratedColumn<bool> isCompleted = GeneratedColumn<bool>(
-      'is_completed', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints: GeneratedColumn.constraintIsAlways(
-          'CHECK ("is_completed" IN (0, 1))'),
-      defaultValue: const Constant(false));
-  static const VerificationMeta _isRepeatingMeta =
-      const VerificationMeta('isRepeating');
-  @override
-  late final GeneratedColumn<bool> isRepeating = GeneratedColumn<bool>(
-      'is_repeating', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints: GeneratedColumn.constraintIsAlways(
-          'CHECK ("is_repeating" IN (0, 1))'),
-      defaultValue: const Constant(false));
-  static const VerificationMeta _createdAtMeta =
-      const VerificationMeta('createdAt');
-  @override
-  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
-      'created_at', aliasedName, false,
-      type: DriftSqlType.dateTime,
-      requiredDuringInsert: false,
-      defaultValue: currentDateAndTime);
-  static const VerificationMeta _dueDateMeta =
-      const VerificationMeta('dueDate');
-  @override
-  late final GeneratedColumn<DateTime> dueDate = GeneratedColumn<DateTime>(
-      'due_date', aliasedName, true,
-      type: DriftSqlType.dateTime, requiredDuringInsert: false);
-  @override
-  List<GeneratedColumn> get $columns =>
-      [id, title, description, isCompleted, isRepeating, createdAt, dueDate];
-  @override
-  String get aliasedName => _alias ?? actualTableName;
-  @override
-  String get actualTableName => $name;
-  static const String $name = 'tasks';
-  @override
-  VerificationContext validateIntegrity(Insertable<Task> instance,
-      {bool isInserting = false}) {
-    final context = VerificationContext();
-    final data = instance.toColumns(true);
-    if (data.containsKey('id')) {
-      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
-    }
-    if (data.containsKey('title')) {
-      context.handle(
-          _titleMeta, title.isAcceptableOrUnknown(data['title']!, _titleMeta));
-    } else if (isInserting) {
-      context.missing(_titleMeta);
-    }
-    if (data.containsKey('description')) {
-      context.handle(
-          _descriptionMeta,
-          description.isAcceptableOrUnknown(
-              data['description']!, _descriptionMeta));
-    }
-    if (data.containsKey('is_completed')) {
-      context.handle(
-          _isCompletedMeta,
-          isCompleted.isAcceptableOrUnknown(
-              data['is_completed']!, _isCompletedMeta));
-    }
-    if (data.containsKey('is_repeating')) {
-      context.handle(
-          _isRepeatingMeta,
-          isRepeating.isAcceptableOrUnknown(
-              data['is_repeating']!, _isRepeatingMeta));
-    }
-    if (data.containsKey('created_at')) {
-      context.handle(_createdAtMeta,
-          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
-    }
-    if (data.containsKey('due_date')) {
-      context.handle(_dueDateMeta,
-          dueDate.isAcceptableOrUnknown(data['due_date']!, _dueDateMeta));
-    }
-    return context;
-  }
-
-  @override
-  Set<GeneratedColumn> get $primaryKey => {id};
-  @override
-  Task map(Map<String, dynamic> data, {String? tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return Task(
-      id: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
-      title: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}title'])!,
-      description: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}description']),
-      isCompleted: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}is_completed'])!,
-      isRepeating: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}is_repeating'])!,
-      createdAt: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
-      dueDate: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}due_date']),
-    );
-  }
-
-  @override
-  $TasksTable createAlias(String alias) {
-    return $TasksTable(attachedDatabase, alias);
-  }
-}
-
-class Task extends DataClass implements Insertable<Task> {
-  final int id;
-  final String title;
-  final String? description;
-  final bool isCompleted;
-  final bool isRepeating;
-  final DateTime createdAt;
-  final DateTime? dueDate;
-  const Task(
-      {required this.id,
-      required this.title,
-      this.description,
-      required this.isCompleted,
-      required this.isRepeating,
-      required this.createdAt,
-      this.dueDate});
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['id'] = Variable<int>(id);
-    map['title'] = Variable<String>(title);
-    if (!nullToAbsent || description != null) {
-      map['description'] = Variable<String>(description);
-    }
-    map['is_completed'] = Variable<bool>(isCompleted);
-    map['is_repeating'] = Variable<bool>(isRepeating);
-    map['created_at'] = Variable<DateTime>(createdAt);
-    if (!nullToAbsent || dueDate != null) {
-      map['due_date'] = Variable<DateTime>(dueDate);
-    }
-    return map;
-  }
-
-  TasksCompanion toCompanion(bool nullToAbsent) {
-    return TasksCompanion(
-      id: Value(id),
-      title: Value(title),
-      description: description == null && nullToAbsent
-          ? const Value.absent()
-          : Value(description),
-      isCompleted: Value(isCompleted),
-      isRepeating: Value(isRepeating),
-      createdAt: Value(createdAt),
-      dueDate: dueDate == null && nullToAbsent
-          ? const Value.absent()
-          : Value(dueDate),
-    );
-  }
-
-  factory Task.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return Task(
-      id: serializer.fromJson<int>(json['id']),
-      title: serializer.fromJson<String>(json['title']),
-      description: serializer.fromJson<String?>(json['description']),
-      isCompleted: serializer.fromJson<bool>(json['isCompleted']),
-      isRepeating: serializer.fromJson<bool>(json['isRepeating']),
-      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
-      dueDate: serializer.fromJson<DateTime?>(json['dueDate']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'title': serializer.toJson<String>(title),
-      'description': serializer.toJson<String?>(description),
-      'isCompleted': serializer.toJson<bool>(isCompleted),
-      'isRepeating': serializer.toJson<bool>(isRepeating),
-      'createdAt': serializer.toJson<DateTime>(createdAt),
-      'dueDate': serializer.toJson<DateTime?>(dueDate),
-    };
-  }
-
-  Task copyWith(
-          {int? id,
-          String? title,
-          Value<String?> description = const Value.absent(),
-          bool? isCompleted,
-          bool? isRepeating,
-          DateTime? createdAt,
-          Value<DateTime?> dueDate = const Value.absent()}) =>
-      Task(
-        id: id ?? this.id,
-        title: title ?? this.title,
-        description: description.present ? description.value : this.description,
-        isCompleted: isCompleted ?? this.isCompleted,
-        isRepeating: isRepeating ?? this.isRepeating,
-        createdAt: createdAt ?? this.createdAt,
-        dueDate: dueDate.present ? dueDate.value : this.dueDate,
-      );
-  Task copyWithCompanion(TasksCompanion data) {
-    return Task(
-      id: data.id.present ? data.id.value : this.id,
-      title: data.title.present ? data.title.value : this.title,
-      description:
-          data.description.present ? data.description.value : this.description,
-      isCompleted:
-          data.isCompleted.present ? data.isCompleted.value : this.isCompleted,
-      isRepeating:
-          data.isRepeating.present ? data.isRepeating.value : this.isRepeating,
-      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
-      dueDate: data.dueDate.present ? data.dueDate.value : this.dueDate,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('Task(')
-          ..write('id: $id, ')
-          ..write('title: $title, ')
-          ..write('description: $description, ')
-          ..write('isCompleted: $isCompleted, ')
-          ..write('isRepeating: $isRepeating, ')
-          ..write('createdAt: $createdAt, ')
-          ..write('dueDate: $dueDate')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(
-      id, title, description, isCompleted, isRepeating, createdAt, dueDate);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is Task &&
-          other.id == this.id &&
-          other.title == this.title &&
-          other.description == this.description &&
-          other.isCompleted == this.isCompleted &&
-          other.isRepeating == this.isRepeating &&
-          other.createdAt == this.createdAt &&
-          other.dueDate == this.dueDate);
-}
-
-class TasksCompanion extends UpdateCompanion<Task> {
-  final Value<int> id;
-  final Value<String> title;
-  final Value<String?> description;
-  final Value<bool> isCompleted;
-  final Value<bool> isRepeating;
-  final Value<DateTime> createdAt;
-  final Value<DateTime?> dueDate;
-  const TasksCompanion({
-    this.id = const Value.absent(),
-    this.title = const Value.absent(),
-    this.description = const Value.absent(),
-    this.isCompleted = const Value.absent(),
-    this.isRepeating = const Value.absent(),
-    this.createdAt = const Value.absent(),
-    this.dueDate = const Value.absent(),
-  });
-  TasksCompanion.insert({
-    this.id = const Value.absent(),
-    required String title,
-    this.description = const Value.absent(),
-    this.isCompleted = const Value.absent(),
-    this.isRepeating = const Value.absent(),
-    this.createdAt = const Value.absent(),
-    this.dueDate = const Value.absent(),
-  }) : title = Value(title);
-  static Insertable<Task> custom({
-    Expression<int>? id,
-    Expression<String>? title,
-    Expression<String>? description,
-    Expression<bool>? isCompleted,
-    Expression<bool>? isRepeating,
-    Expression<DateTime>? createdAt,
-    Expression<DateTime>? dueDate,
-  }) {
-    return RawValuesInsertable({
-      if (id != null) 'id': id,
-      if (title != null) 'title': title,
-      if (description != null) 'description': description,
-      if (isCompleted != null) 'is_completed': isCompleted,
-      if (isRepeating != null) 'is_repeating': isRepeating,
-      if (createdAt != null) 'created_at': createdAt,
-      if (dueDate != null) 'due_date': dueDate,
-    });
-  }
-
-  TasksCompanion copyWith(
-      {Value<int>? id,
-      Value<String>? title,
-      Value<String?>? description,
-      Value<bool>? isCompleted,
-      Value<bool>? isRepeating,
-      Value<DateTime>? createdAt,
-      Value<DateTime?>? dueDate}) {
-    return TasksCompanion(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      description: description ?? this.description,
-      isCompleted: isCompleted ?? this.isCompleted,
-      isRepeating: isRepeating ?? this.isRepeating,
-      createdAt: createdAt ?? this.createdAt,
-      dueDate: dueDate ?? this.dueDate,
-    );
-  }
-
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    if (id.present) {
-      map['id'] = Variable<int>(id.value);
-    }
-    if (title.present) {
-      map['title'] = Variable<String>(title.value);
-    }
-    if (description.present) {
-      map['description'] = Variable<String>(description.value);
-    }
-    if (isCompleted.present) {
-      map['is_completed'] = Variable<bool>(isCompleted.value);
-    }
-    if (isRepeating.present) {
-      map['is_repeating'] = Variable<bool>(isRepeating.value);
-    }
-    if (createdAt.present) {
-      map['created_at'] = Variable<DateTime>(createdAt.value);
-    }
-    if (dueDate.present) {
-      map['due_date'] = Variable<DateTime>(dueDate.value);
-    }
-    return map;
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('TasksCompanion(')
-          ..write('id: $id, ')
-          ..write('title: $title, ')
-          ..write('description: $description, ')
-          ..write('isCompleted: $isCompleted, ')
-          ..write('isRepeating: $isRepeating, ')
-          ..write('createdAt: $createdAt, ')
-          ..write('dueDate: $dueDate')
-          ..write(')'))
-        .toString();
-  }
-}
-
-abstract class _$AppDatabase extends GeneratedDatabase {
-  _$AppDatabase(QueryExecutor e) : super(e);
-  $AppDatabaseManager get managers => $AppDatabaseManager(this);
-  late final $ActivitiesTable activities = $ActivitiesTable(this);
-  late final $SessionsTable sessions = $SessionsTable(this);
-  late final $TasksTable tasks = $TasksTable(this);
-  @override
-  Iterable<TableInfo<Table, Object?>> get allTables =>
-      allSchemaEntities.whereType<TableInfo<Table, Object?>>();
-  @override
-  List<DatabaseSchemaEntity> get allSchemaEntities =>
-      [activities, sessions, tasks];
-  @override
-  StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
-        [
-          WritePropagation(
-            on: TableUpdateQuery.onTableName('activities',
-                limitUpdateKind: UpdateKind.delete),
-            result: [
-              TableUpdate('sessions', kind: UpdateKind.delete),
-            ],
-          ),
-        ],
-      );
-}
-
-typedef $$ActivitiesTableCreateCompanionBuilder = ActivitiesCompanion Function({
-  Value<int> id,
-  required String name,
-  required String color,
-  Value<int> sortOrder,
-});
-typedef $$ActivitiesTableUpdateCompanionBuilder = ActivitiesCompanion Function({
-  Value<int> id,
-  Value<String> name,
-  Value<String> color,
-  Value<int> sortOrder,
-});
-
-final class $$ActivitiesTableReferences
-    extends BaseReferences<_$AppDatabase, $ActivitiesTable, Activity> {
-  $$ActivitiesTableReferences(super.$_db, super.$_table, super.$_typedResult);
-
-  static MultiTypedResultKey<$SessionsTable, List<Session>> _sessionsRefsTable(
-          _$AppDatabase db) =>
-      MultiTypedResultKey.fromTable(db.sessions,
-          aliasName:
-              $_aliasNameGenerator(db.activities.id, db.sessions.activityId));
-
-  $$SessionsTableProcessedTableManager get sessionsRefs {
-    final manager = $$SessionsTableTableManager($_db, $_db.sessions)
-        .filter((f) => f.activityId.id.sqlEquals($_itemColumn<int>('id')!));
-
-    final cache = $_typedResult.readTableOrNull(_sessionsRefsTable($_db));
-    return ProcessedTableManager(
-        manager.$state.copyWith(prefetchedData: cache));
-  }
-}
-
-class $$ActivitiesTableFilterComposer
-    extends Composer<_$AppDatabase, $ActivitiesTable> {
-  $$ActivitiesTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get name => $composableBuilder(
-      column: $table.name, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get color => $composableBuilder(
-      column: $table.color, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<int> get sortOrder => $composableBuilder(
-      column: $table.sortOrder, builder: (column) => ColumnFilters(column));
-
-  Expression<bool> sessionsRefs(
-      Expression<bool> Function($$SessionsTableFilterComposer f) f) {
-    final $$SessionsTableFilterComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.id,
-        referencedTable: $db.sessions,
-        getReferencedColumn: (t) => t.activityId,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$SessionsTableFilterComposer(
-              $db: $db,
-              $table: $db.sessions,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return f(composer);
-  }
-}
-
-class $$ActivitiesTableOrderingComposer
-    extends Composer<_$AppDatabase, $ActivitiesTable> {
-  $$ActivitiesTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get name => $composableBuilder(
-      column: $table.name, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get color => $composableBuilder(
-      column: $table.color, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<int> get sortOrder => $composableBuilder(
-      column: $table.sortOrder, builder: (column) => ColumnOrderings(column));
-}
-
-class $$ActivitiesTableAnnotationComposer
-    extends Composer<_$AppDatabase, $ActivitiesTable> {
-  $$ActivitiesTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<int> get id =>
-      $composableBuilder(column: $table.id, builder: (column) => column);
-
-  GeneratedColumn<String> get name =>
-      $composableBuilder(column: $table.name, builder: (column) => column);
-
-  GeneratedColumn<String> get color =>
-      $composableBuilder(column: $table.color, builder: (column) => column);
-
-  GeneratedColumn<int> get sortOrder =>
-      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
-
-  Expression<T> sessionsRefs<T extends Object>(
-      Expression<T> Function($$SessionsTableAnnotationComposer a) f) {
-    final $$SessionsTableAnnotationComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.id,
-        referencedTable: $db.sessions,
-        getReferencedColumn: (t) => t.activityId,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$SessionsTableAnnotationComposer(
-              $db: $db,
-              $table: $db.sessions,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return f(composer);
-  }
-}
-
-class $$ActivitiesTableTableManager extends RootTableManager<
-    _$AppDatabase,
-    $ActivitiesTable,
-    Activity,
-    $$ActivitiesTableFilterComposer,
-    $$ActivitiesTableOrderingComposer,
-    $$ActivitiesTableAnnotationComposer,
-    $$ActivitiesTableCreateCompanionBuilder,
-    $$ActivitiesTableUpdateCompanionBuilder,
-    (Activity, $$ActivitiesTableReferences),
-    Activity,
-    PrefetchHooks Function({bool sessionsRefs})> {
-  $$ActivitiesTableTableManager(_$AppDatabase db, $ActivitiesTable table)
-      : super(TableManagerState(
-          db: db,
-          table: table,
-          createFilteringComposer: () =>
-              $$ActivitiesTableFilterComposer($db: db, $table: table),
-          createOrderingComposer: () =>
-              $$ActivitiesTableOrderingComposer($db: db, $table: table),
-          createComputedFieldComposer: () =>
-              $$ActivitiesTableAnnotationComposer($db: db, $table: table),
-          updateCompanionCallback: ({
-            Value<int> id = const Value.absent(),
-            Value<String> name = const Value.absent(),
-            Value<String> color = const Value.absent(),
-            Value<int> sortOrder = const Value.absent(),
-          }) =>
-              ActivitiesCompanion(
-            id: id,
-            name: name,
-            color: color,
-            sortOrder: sortOrder,
-          ),
-          createCompanionCallback: ({
-            Value<int> id = const Value.absent(),
-            required String name,
-            required String color,
-            Value<int> sortOrder = const Value.absent(),
-          }) =>
-              ActivitiesCompanion.insert(
-            id: id,
-            name: name,
-            color: color,
-            sortOrder: sortOrder,
-          ),
-          withReferenceMapper: (p0) => p0
-              .map((e) => (
-                    e.readTable(table),
-                    $$ActivitiesTableReferences(db, table, e)
-                  ))
-              .toList(),
-          prefetchHooksCallback: ({sessionsRefs = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [if (sessionsRefs) db.sessions],
-              addJoins: null,
-              getPrefetchedDataCallback: (items) async {
-                return [
-                  if (sessionsRefs)
-                    await $_getPrefetchedData<Activity, $ActivitiesTable,
-                            Session>(
-                        currentTable: table,
-                        referencedTable:
-                            $$ActivitiesTableReferences._sessionsRefsTable(db),
-                        managerFromTypedResult: (p0) =>
-                            $$ActivitiesTableReferences(db, table, p0)
-                                .sessionsRefs,
-                        referencedItemsForCurrentItem:
-                            (item, referencedItems) => referencedItems
-                                .where((e) => e.activityId == item.id),
-                        typedResults: items)
-                ];
-              },
-            );
-          },
-        ));
-}
-
-typedef $$ActivitiesTableProcessedTableManager = ProcessedTableManager<
-    _$AppDatabase,
-    $ActivitiesTable,
-    Activity,
-    $$ActivitiesTableFilterComposer,
-    $$ActivitiesTableOrderingComposer,
-    $$ActivitiesTableAnnotationComposer,
-    $$ActivitiesTableCreateCompanionBuilder,
-    $$ActivitiesTableUpdateCompanionBuilder,
-    (Activity, $$ActivitiesTableReferences),
-    Activity,
-    PrefetchHooks Function({bool sessionsRefs})>;
-typedef $$SessionsTableCreateCompanionBuilder = SessionsCompanion Function({
-  Value<int> id,
-  required int activityId,
-  required DateTime startTime,
-  Value<DateTime?> endTime,
-});
-typedef $$SessionsTableUpdateCompanionBuilder = SessionsCompanion Function({
-  Value<int> id,
-  Value<int> activityId,
-  Value<DateTime> startTime,
-  Value<DateTime?> endTime,
-});
-
-final class $$SessionsTableReferences
-    extends BaseReferences<_$AppDatabase, $SessionsTable, Session> {
-  $$SessionsTableReferences(super.$_db, super.$_table, super.$_typedResult);
-
-  static $ActivitiesTable _activityIdTable(_$AppDatabase db) =>
-      db.activities.createAlias(
-          $_aliasNameGenerator(db.sessions.activityId, db.activities.id));
-
-  $$ActivitiesTableProcessedTableManager get activityId {
-    final $_column = $_itemColumn<int>('activity_id')!;
-
-    final manager = $$ActivitiesTableTableManager($_db, $_db.activities)
-        .filter((f) => f.id.sqlEquals($_column));
-    final item = $_typedResult.readTableOrNull(_activityIdTable($_db));
-    if (item == null) return manager;
-    return ProcessedTableManager(
-        manager.$state.copyWith(prefetchedData: [item]));
-  }
-}
-
-class $$SessionsTableFilterComposer
-    extends Composer<_$AppDatabase, $SessionsTable> {
-  $$SessionsTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get startTime => $composableBuilder(
-      column: $table.startTime, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get endTime => $composableBuilder(
-      column: $table.endTime, builder: (column) => ColumnFilters(column));
-
-  $$ActivitiesTableFilterComposer get activityId {
-    final $$ActivitiesTableFilterComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.activityId,
-        referencedTable: $db.activities,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$ActivitiesTableFilterComposer(
-              $db: $db,
-              $table: $db.activities,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
-}
-
-class $$SessionsTableOrderingComposer
-    extends Composer<_$AppDatabase, $SessionsTable> {
-  $$SessionsTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get startTime => $composableBuilder(
-      column: $table.startTime, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get endTime => $composableBuilder(
-      column: $table.endTime, builder: (column) => ColumnOrderings(column));
-
-  $$ActivitiesTableOrderingComposer get activityId {
-    final $$ActivitiesTableOrderingComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.activityId,
-        referencedTable: $db.activities,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$ActivitiesTableOrderingComposer(
-              $db: $db,
-              $table: $db.activities,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
-}
-
-class $$SessionsTableAnnotationComposer
-    extends Composer<_$AppDatabase, $SessionsTable> {
-  $$SessionsTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<int> get id =>
-      $composableBuilder(column: $table.id, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get startTime =>
-      $composableBuilder(column: $table.startTime, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get endTime =>
-      $composableBuilder(column: $table.endTime, builder: (column) => column);
-
-  $$ActivitiesTableAnnotationComposer get activityId {
-    final $$ActivitiesTableAnnotationComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.activityId,
-        referencedTable: $db.activities,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$ActivitiesTableAnnotationComposer(
-              $db: $db,
-              $table: $db.activities,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
-}
-
-class $$SessionsTableTableManager extends RootTableManager<
-    _$AppDatabase,
-    $SessionsTable,
-    Session,
-    $$SessionsTableFilterComposer,
-    $$SessionsTableOrderingComposer,
-    $$SessionsTableAnnotationComposer,
-    $$SessionsTableCreateCompanionBuilder,
-    $$SessionsTableUpdateCompanionBuilder,
-    (Session, $$SessionsTableReferences),
-    Session,
-    PrefetchHooks Function({bool activityId})> {
-  $$SessionsTableTableManager(_$AppDatabase db, $SessionsTable table)
-      : super(TableManagerState(
-          db: db,
-          table: table,
-          createFilteringComposer: () =>
-              $$SessionsTableFilterComposer($db: db, $table: table),
-          createOrderingComposer: () =>
-              $$SessionsTableOrderingComposer($db: db, $table: table),
-          createComputedFieldComposer: () =>
-              $$SessionsTableAnnotationComposer($db: db, $table: table),
-          updateCompanionCallback: ({
-            Value<int> id = const Value.absent(),
-            Value<int> activityId = const Value.absent(),
-            Value<DateTime> startTime = const Value.absent(),
-            Value<DateTime?> endTime = const Value.absent(),
-          }) =>
-              SessionsCompanion(
-            id: id,
-            activityId: activityId,
-            startTime: startTime,
-            endTime: endTime,
-          ),
-          createCompanionCallback: ({
-            Value<int> id = const Value.absent(),
-            required int activityId,
-            required DateTime startTime,
-            Value<DateTime?> endTime = const Value.absent(),
-          }) =>
-              SessionsCompanion.insert(
-            id: id,
-            activityId: activityId,
-            startTime: startTime,
-            endTime: endTime,
-          ),
-          withReferenceMapper: (p0) => p0
-              .map((e) =>
-                  (e.readTable(table), $$SessionsTableReferences(db, table, e)))
-              .toList(),
-          prefetchHooksCallback: ({activityId = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [],
-              addJoins: <
-                  T extends TableManagerState<
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic>>(state) {
-                if (activityId) {
-                  state = state.withJoin(
-                    currentTable: table,
-                    currentColumn: table.activityId,
-                    referencedTable:
-                        $$SessionsTableReferences._activityIdTable(db),
-                    referencedColumn:
-                        $$SessionsTableReferences._activityIdTable(db).id,
-                  ) as T;
-                }
-
-                return state;
-              },
-              getPrefetchedDataCallback: (items) async {
-                return [];
-              },
-            );
-          },
-        ));
-}
-
-typedef $$SessionsTableProcessedTableManager = ProcessedTableManager<
-    _$AppDatabase,
-    $SessionsTable,
-    Session,
-    $$SessionsTableFilterComposer,
-    $$SessionsTableOrderingComposer,
-    $$SessionsTableAnnotationComposer,
-    $$SessionsTableCreateCompanionBuilder,
-    $$SessionsTableUpdateCompanionBuilder,
-    (Session, $$SessionsTableReferences),
-    Session,
-    PrefetchHooks Function({bool activityId})>;
-typedef $$TasksTableCreateCompanionBuilder = TasksCompanion Function({
-  Value<int> id,
-  required String title,
-  Value<String?> description,
-  Value<bool> isCompleted,
-  Value<bool> isRepeating,
-  Value<DateTime> createdAt,
-  Value<DateTime?> dueDate,
-});
-typedef $$TasksTableUpdateCompanionBuilder = TasksCompanion Function({
-  Value<int> id,
-  Value<String> title,
-  Value<String?> description,
-  Value<bool> isCompleted,
-  Value<bool> isRepeating,
-  Value<DateTime> createdAt,
-  Value<DateTime?> dueDate,
-});
-
-class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
-  $$TasksTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get title => $composableBuilder(
-      column: $table.title, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get description => $composableBuilder(
-      column: $table.description, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<bool> get isCompleted => $composableBuilder(
-      column: $table.isCompleted, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<bool> get isRepeating => $composableBuilder(
-      column: $table.isRepeating, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get dueDate => $composableBuilder(
-      column: $table.dueDate, builder: (column) => ColumnFilters(column));
-}
-
-class $$TasksTableOrderingComposer
-    extends Composer<_$AppDatabase, $TasksTable> {
-  $$TasksTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get title => $composableBuilder(
-      column: $table.title, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get description => $composableBuilder(
-      column: $table.description, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<bool> get isCompleted => $composableBuilder(
-      column: $table.isCompleted, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<bool> get isRepeating => $composableBuilder(
-      column: $table.isRepeating, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get dueDate => $composableBuilder(
-      column: $table.dueDate, builder: (column) => ColumnOrderings(column));
-}
-
-class $$TasksTableAnnotationComposer
-    extends Composer<_$AppDatabase, $TasksTable> {
-  $$TasksTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<int> get id =>
-      $composableBuilder(column: $table.id, builder: (column) => column);
-
-  GeneratedColumn<String> get title =>
-      $composableBuilder(column: $table.title, builder: (column) => column);
-
-  GeneratedColumn<String> get description => $composableBuilder(
-      column: $table.description, builder: (column) => column);
-
-  GeneratedColumn<bool> get isCompleted => $composableBuilder(
-      column: $table.isCompleted, builder: (column) => column);
-
-  GeneratedColumn<bool> get isRepeating => $composableBuilder(
-      column: $table.isRepeating, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get createdAt =>
-      $composableBuilder(column: $table.createdAt, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get dueDate =>
-      $composableBuilder(column: $table.dueDate, builder: (column) => column);
-}
-
-class $$TasksTableTableManager extends RootTableManager<
-    _$AppDatabase,
-    $TasksTable,
-    Task,
-    $$TasksTableFilterComposer,
-    $$TasksTableOrderingComposer,
-    $$TasksTableAnnotationComposer,
-    $$TasksTableCreateCompanionBuilder,
-    $$TasksTableUpdateCompanionBuilder,
-    (Task, BaseReferences<_$AppDatabase, $TasksTable, Task>),
-    Task,
-    PrefetchHooks Function()> {
-  $$TasksTableTableManager(_$AppDatabase db, $TasksTable table)
-      : super(TableManagerState(
-          db: db,
-          table: table,
-          createFilteringComposer: () =>
-              $$TasksTableFilterComposer($db: db, $table: table),
-          createOrderingComposer: () =>
-              $$TasksTableOrderingComposer($db: db, $table: table),
-          createComputedFieldComposer: () =>
-              $$TasksTableAnnotationComposer($db: db, $table: table),
-          updateCompanionCallback: ({
-            Value<int> id = const Value.absent(),
-            Value<String> title = const Value.absent(),
-            Value<String?> description = const Value.absent(),
-            Value<bool> isCompleted = const Value.absent(),
-            Value<bool> isRepeating = const Value.absent(),
-            Value<DateTime> createdAt = const Value.absent(),
-            Value<DateTime?> dueDate = const Value.absent(),
-          }) =>
-              TasksCompanion(
-            id: id,
-            title: title,
-            description: description,
-            isCompleted: isCompleted,
-            isRepeating: isRepeating,
-            createdAt: createdAt,
-            dueDate: dueDate,
-          ),
-          createCompanionCallback: ({
-            Value<int> id = const Value.absent(),
-            required String title,
-            Value<String?> description = const Value.absent(),
-            Value<bool> isCompleted = const Value.absent(),
-            Value<bool> isRepeating = const Value.absent(),
-            Value<DateTime> createdAt = const Value.absent(),
-            Value<DateTime?> dueDate = const Value.absent(),
-          }) =>
-              TasksCompanion.insert(
-            id: id,
-            title: title,
-            description: description,
-            isCompleted: isCompleted,
-            isRepeating: isRepeating,
-            createdAt: createdAt,
-            dueDate: dueDate,
-          ),
-          withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
-              .toList(),
-          prefetchHooksCallback: null,
-        ));
-}
-
-typedef $$TasksTableProcessedTableManager = ProcessedTableManager<
-    _$AppDatabase,
-    $TasksTable,
-    Task,
-    $$TasksTableFilterComposer,
-    $$TasksTableOrderingComposer,
-    $$TasksTableAnnotationComposer,
-    $$TasksTableCreateCompanionBuilder,
-    $$TasksTableUpdateCompanionBuilder,
-    (Task, BaseReferences<_$AppDatabase, $TasksTable, Task>),
-    Task,
-    PrefetchHooks Function()>;
-
-class $AppDatabaseManager {
-  final _$AppDatabase _db;
-  $AppDatabaseManager(this._db);
-  $$ActivitiesTableTableManager get activities =>
-      $$ActivitiesTableTableManager(_db, _db.activities);
-  $$SessionsTableTableManager get sessions =>
-      $$SessionsTableTableManager(_db, _db.sessions);
-  $$TasksTableTableManager get tasks =>
-      $$TasksTableTableManager(_db, _db.tasks);
-}
-
-
-================================================================================
-
 /home/flomik/StudioProjects/Tempo/lib/main.dart main.dart
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider, Material, Icons, DefaultMaterialLocalizations, ReorderableListView;
+import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider, Material, Icons, DefaultMaterialLocalizations, ReorderableListView, MediaQuery, ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cupertino_native/cupertino_native.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
@@ -1911,25 +271,28 @@ void main() {
   runApp(const ProviderScope(child: TempoApp()));
 }
 
-class TempoApp extends StatelessWidget {
+class TempoApp extends ConsumerWidget {
   const TempoApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return const CupertinoApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+
+    return CupertinoApp(
       title: 'Tempo',
       debugShowCheckedModeBanner: false,
       theme: CupertinoThemeData(
-        brightness: Brightness.light,
-        primaryColor: Color(0xFF007AFF),
-        scaffoldBackgroundColor: Color(0xFFF2F2F7),
+        brightness: themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
+        primaryColor: const Color(0xFF007AFF),
+        scaffoldBackgroundColor: themeMode == ThemeMode.dark ? const Color(0xFF000000) : const Color(0xFFF2F2F7),
+        barBackgroundColor: themeMode == ThemeMode.dark ? const Color(0xFF1C1C1E) : const Color(0xF0F9F9F9),
       ),
-      localizationsDelegates: [
+      localizationsDelegates: const [
         DefaultMaterialLocalizations.delegate,
         DefaultCupertinoLocalizations.delegate,
         DefaultWidgetsLocalizations.delegate,
       ],
-      home: RootLayout(),
+      home: const RootLayout(),
     );
   }
 }
@@ -1943,13 +306,17 @@ class RootLayout extends StatefulWidget {
 
 class _RootLayoutState extends State<RootLayout> {
   int _index = 0;
-  final _pages = const [HomeView(), TasksView(), CalendarView(), BodyMapView()];
+  final _pages = const [HomeView(), TasksView(), CalendarView(), BodyMapView(), SettingsView()];
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        Positioned.fill(child: CupertinoPageScaffold(child: _pages[_index])),
+        Positioned.fill(
+          child: CupertinoPageScaffold(
+            child: _pages[_index],
+          ),
+        ),
         Positioned(
           left: 0, right: 0, bottom: 0,
           child: CNTabBar(
@@ -1960,6 +327,7 @@ class _RootLayoutState extends State<RootLayout> {
               CNTabBarItem(label: 'Tasks', icon: CNSymbol('checklist')),
               CNTabBarItem(label: 'Calendar', icon: CNSymbol('calendar')),
               CNTabBarItem(label: 'Body', icon: CNSymbol('figure.arms.open')),
+              CNTabBarItem(label: 'Settings', icon: CNSymbol('gear')),
             ],
           ),
         ),
@@ -1985,32 +353,38 @@ class HomeView extends ConsumerWidget {
         child: Column(
           children: [
             const Gap(20),
-            GlassCard(
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Current Session', style: TextStyle(color: CupertinoColors.systemGrey)),
-                      if (activeSession != null)
-                        const CNIcon(symbol: CNSymbol('record.circle', color: CupertinoColors.systemRed))
-                    ],
-                  ),
-                  const Gap(10),
-                  Text(
-                    _formatDuration(duration),
-                    style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w200, fontFeatures: [FontFeature.tabularFigures()]),
-                  ),
-                  const Gap(20),
-                  if (activeSession != null)
-                    CNButton.icon(icon: const CNSymbol('stop.fill'), onPressed: () => ref.read(appControllerProvider).toggleSession(activeSession.activityId))
-                  else
-                    const Text('Tap an activity to start', style: TextStyle(color: CupertinoColors.systemBlue)),
-                ],
+            // Fixed height container
+            SizedBox(
+              height: 220,
+              child: GlassCard(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Current Session', style: TextStyle(color: CupertinoColors.systemGrey)),
+                        if (activeSession != null)
+                          const CNIcon(symbol: CNSymbol('record.circle', color: CupertinoColors.systemRed))
+                      ],
+                    ),
+                    const Gap(10),
+                    Text(
+                      _formatDuration(duration),
+                      style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w200, fontFeatures: [FontFeature.tabularFigures()]),
+                    ),
+                    const Gap(20),
+                    if (activeSession != null)
+                      CNButton.icon(icon: const CNSymbol('stop.fill'), onPressed: () => ref.read(appControllerProvider).toggleSession(activeSession.activityId))
+                    else
+                      const Text('Tap an activity to start', style: TextStyle(color: CupertinoColors.systemBlue)),
+                  ],
+                ),
               ),
             ),
             const Gap(30),
-            // Header with Gear Icon
+
+            // Header with properly working button
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -2018,20 +392,30 @@ class HomeView extends ConsumerWidget {
                 CupertinoButton(
                   padding: EdgeInsets.zero,
                   child: const CNIcon(symbol: CNSymbol('gear'), color: CupertinoColors.systemGrey),
-                  onPressed: () => Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const ActivitiesManagerPage())),
+                  onPressed: () {
+                    // Используем rootNavigator, чтобы открыть поверх табов
+                    Navigator.of(context, rootNavigator: true).push(
+                      CupertinoPageRoute(builder: (_) => const ActivitiesManagerPage()),
+                    );
+                  },
                 ),
               ],
             ),
             const Gap(10),
-            activitiesAsync.when(
-              data: (activities) => Wrap(
-                spacing: 12, runSpacing: 12,
-                children: [
-                  ...activities.map((act) => _ActivityChip(activity: act, isActive: activeSession?.activityId == act.id)),
-                ],
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: activitiesAsync.when(
+                  data: (activities) => Wrap(
+                    spacing: 12, runSpacing: 12,
+                    children: [
+                      ...activities.map((act) => _ActivityChip(activity: act, isActive: activeSession?.activityId == act.id)),
+                    ],
+                  ),
+                  loading: () => const CupertinoActivityIndicator(),
+                  error: (e, s) => Text('$e'),
+                ),
               ),
-              loading: () => const CupertinoActivityIndicator(),
-              error: (e, s) => Text('$e'),
             ),
           ],
         ),
@@ -2146,54 +530,69 @@ class ActivitiesManagerPage extends ConsumerWidget {
     String selectedColor = activity?.color ?? '0xFF007AFF';
     final colors = ['0xFF007AFF', '0xFFFF2D55', '0xFF34C759', '0xFFFF9500', '0xFFAF52DE', '0xFF5856D6', '0xFF8E8E93', '0xFF000000'];
 
-    showCupertinoModalPopup(
+    showCupertinoDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => Container(
-          height: 350,
-          padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(
-            color: CupertinoColors.systemBackground,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(activity == null ? 'New Activity' : 'Edit Activity', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const Gap(20),
-              CupertinoTextField(controller: nameCtrl, placeholder: 'Name', autofocus: true),
-              const Gap(20),
-              const Text('Color', style: TextStyle(color: CupertinoColors.systemGrey)),
-              const Gap(10),
-              Wrap(
-                spacing: 12, runSpacing: 12,
-                children: colors.map((c) => GestureDetector(
-                  onTap: () => setState(() => selectedColor = c),
-                  child: Container(
-                    width: 32, height: 32,
-                    decoration: BoxDecoration(
-                      color: Color(int.parse(c)),
-                      shape: BoxShape.circle,
-                      border: selectedColor == c ? Border.all(color: CupertinoColors.label, width: 3) : null,
+        builder: (context, setState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 300,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemBackground.resolveFrom(context),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(activity == null ? 'New Activity' : 'Edit Activity', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const Gap(20),
+                    CupertinoTextField(controller: nameCtrl, placeholder: 'Name', autofocus: true),
+                    const Gap(20),
+                    const Text('Color', style: TextStyle(color: CupertinoColors.systemGrey)),
+                    const Gap(10),
+                    Wrap(
+                      spacing: 12, runSpacing: 12,
+                      children: colors.map((c) => GestureDetector(
+                        onTap: () => setState(() => selectedColor = c),
+                        child: Container(
+                          width: 32, height: 32,
+                          decoration: BoxDecoration(
+                            color: Color(int.parse(c)),
+                            shape: BoxShape.circle,
+                            border: selectedColor == c ? Border.all(color: CupertinoColors.label, width: 3) : null,
+                          ),
+                        ),
+                      )).toList(),
                     ),
-                  ),
-                )).toList(),
+                    const Gap(24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        CupertinoButton(child: const Text('Cancel'), onPressed: () => Navigator.pop(ctx)),
+                        CupertinoButton(
+                          child: const Text('Save'),
+                          onPressed: () {
+                            if (nameCtrl.text.isNotEmpty) {
+                              if (activity == null) {
+                                ref.read(appControllerProvider).addActivity(nameCtrl.text, selectedColor);
+                              } else {
+                                ref.read(appControllerProvider).updateActivity(activity.copyWith(name: nameCtrl.text, color: selectedColor));
+                              }
+                              Navigator.pop(ctx);
+                            }
+                          },
+                        ),
+                      ],
+                    )
+                  ],
+                ),
               ),
-              const Spacer(),
-              CNButton(
-                label: 'Save',
-                onPressed: () {
-                  if (nameCtrl.text.isNotEmpty) {
-                    if (activity == null) {
-                      ref.read(appControllerProvider).addActivity(nameCtrl.text, selectedColor);
-                    } else {
-                      ref.read(appControllerProvider).updateActivity(activity.copyWith(name: nameCtrl.text, color: selectedColor));
-                    }
-                    Navigator.pop(ctx);
-                  }
-                },
-              )
-            ],
+            ),
           ),
         ),
       ),
@@ -2229,19 +628,22 @@ class _TasksViewState extends ConsumerState<TasksView> {
               ],
             ),
           ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                AdaptiveSegmentedControl(
-                  labels: const ['Active', 'Scheduled', 'Repeating', 'Done'],
-                  selectedIndex: _filter.index,
-                  onValueChanged: (index) {
-                    setState(() => _filter = TaskFilter.values[index]);
-                  },
-                ),
-              ],
+            child: SizedBox(
+              width: double.infinity,
+              child: CupertinoSlidingSegmentedControl<int>(
+                groupValue: _filter.index,
+                children: const {
+                  0: Text('Active'),
+                  1: Text('Scheduled'),
+                  2: Text('Repeat'),
+                  3: Text('Done'),
+                },
+                onValueChanged: (index) {
+                  if (index != null) setState(() => _filter = TaskFilter.values[index]);
+                },
+              ),
             ),
           ),
           const Gap(10),
@@ -2272,11 +674,17 @@ class _TasksViewState extends ConsumerState<TasksView> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              AdaptiveCheckbox(
-                                value: task.isCompleted,
-                                onChanged: (val) {
-                                  ref.read(appControllerProvider).toggleTask(task);
-                                },
+                              GestureDetector(
+                                onTap: () => ref.read(appControllerProvider).toggleTask(task),
+                                child: Container(
+                                  width: 24, height: 24,
+                                  decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: task.isCompleted ? CupertinoColors.activeBlue : Colors.transparent,
+                                      border: Border.all(color: task.isCompleted ? CupertinoColors.activeBlue : CupertinoColors.systemGrey3, width: 2)
+                                  ),
+                                  child: task.isCompleted ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
+                                ),
                               ),
                               const Gap(12),
                               Expanded(child: Column(
@@ -2328,62 +736,75 @@ class _TasksViewState extends ConsumerState<TasksView> {
     DateTime? pickedDate = task?.dueDate;
     bool isRepeating = task?.isRepeating ?? false;
 
-    showCupertinoModalPopup(
+    showCupertinoDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => Container(
-          padding: const EdgeInsets.all(20),
-          height: 550, // More space for keyboard
-          decoration: const BoxDecoration(
-            color: CupertinoColors.systemBackground,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(task == null ? 'New Task' : 'Edit Task', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  CupertinoButton(child: const Text('Save'), onPressed: () {
-                    if (titleCtrl.text.isNotEmpty) {
-                      if (task == null) {
-                        ref.read(appControllerProvider).addTask(titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
-                      } else {
-                        ref.read(appControllerProvider).updateTask(task, titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
-                      }
-                      Navigator.pop(ctx);
-                    }
-                  }),
-                ],
-              ),
-              const Gap(20),
-              CupertinoTextField(controller: titleCtrl, placeholder: 'Title', autofocus: task == null),
-              const Gap(12),
-              CupertinoTextField(controller: descCtrl, placeholder: 'Description', maxLines: 3),
-              const Gap(20),
+        builder: (context, setState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 320,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemBackground.resolveFrom(context),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(task == null ? 'New Task' : 'Edit Task', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const Gap(20),
+                    CupertinoTextField(controller: titleCtrl, placeholder: 'Title', autofocus: task == null),
+                    const Gap(12),
+                    CupertinoTextField(controller: descCtrl, placeholder: 'Description', maxLines: 3),
+                    const Gap(20),
 
-              // Options
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Due Date'),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    child: Text(pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(pickedDate!)),
-                    onPressed: () => _pickDate(context, (d) => setState(() => pickedDate = d)),
-                  )
-                ],
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Due Date'),
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          child: Text(pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(pickedDate!)),
+                          onPressed: () => _pickDate(context, (d) => setState(() => pickedDate = d)),
+                        )
+                      ],
+                    ),
+                    const Divider(),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Repeat Daily'),
+                        AdaptiveSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
+                      ],
+                    ),
+                    const Gap(20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        CupertinoButton(child: const Text('Cancel'), onPressed: () => Navigator.pop(ctx)),
+                        CupertinoButton(
+                          child: const Text('Save'),
+                          onPressed: () {
+                            if (titleCtrl.text.isNotEmpty) {
+                              if (task == null) {
+                                ref.read(appControllerProvider).addTask(titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
+                              } else {
+                                ref.read(appControllerProvider).updateTask(task, titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
+                              }
+                              Navigator.pop(ctx);
+                            }
+                          },
+                        ),
+                      ],
+                    )
+                  ],
+                ),
               ),
-              const Divider(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Repeat Daily'),
-                  AdaptiveSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -2394,7 +815,7 @@ class _TasksViewState extends ConsumerState<TasksView> {
     showCupertinoModalPopup(
         context: context,
         builder: (_) => Container(
-          height: 250, color: CupertinoColors.systemBackground,
+          height: 250, color: CupertinoColors.systemBackground.resolveFrom(context),
           child: CupertinoDatePicker(
             mode: CupertinoDatePickerMode.date,
             onDateTimeChanged: onPicked,
@@ -2422,7 +843,13 @@ class CalendarView extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Row(
               children: [
-                Text(DateFormat.yMMMMd().format(selectedDate), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  child: const Text("Today"),
+                  onPressed: () => ref.read(selectedDateProvider.notifier).state = DateTime.now(),
+                ),
+                const Spacer(),
+                Text(DateFormat.yMMMMd().format(selectedDate), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const Spacer(),
                 CNButton.icon(
                   icon: const CNSymbol('plus'),
@@ -2470,12 +897,13 @@ class CalendarView extends ConsumerWidget {
           // Timeline
           Expanded(
             child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 120), // Extra padding for visual look
               child: SizedBox(
-                height: 24 * 60.0, // 60px per hour
+                height: 25 * 60.0, // 0 to 24 (25 hours to show 24:00)
                 child: Stack(
                   children: [
                     // Background Lines
-                    for (int i = 0; i < 24; i++)
+                    for (int i = 0; i <= 24; i++)
                       Positioned(
                         top: i * 60.0, left: 0, right: 0,
                         child: Container(
@@ -2483,7 +911,7 @@ class CalendarView extends ConsumerWidget {
                           decoration: BoxDecoration(border: Border(top: BorderSide(color: CupertinoColors.systemGrey5))),
                           child: Padding(
                             padding: const EdgeInsets.only(left: 10, top: 5),
-                            child: Text('$i:00', style: const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey)),
+                            child: Text('${i.toString().padLeft(2, '0')}:00', style: const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey)),
                           ),
                         ),
                       ),
@@ -2544,14 +972,14 @@ class CalendarView extends ConsumerWidget {
     return diff.toDouble().clamp(20.0, 1440.0); // Minimum 20px height
   }
 
-  // Quick add by tapping timeline
   void _onTapEmpty(BuildContext context, WidgetRef ref, double dy, DateTime date) {
     final hour = (dy / 60).floor();
+    if(hour >= 24) return;
+
     final tapTime = DateTime(date.year, date.month, date.day, hour);
     _showAddDialog(context, ref, tapTime);
   }
 
-  // Manual add button
   void _addManualLog(BuildContext context, WidgetRef ref, DateTime date) {
     final now = DateTime.now();
     final tapTime = DateTime(date.year, date.month, date.day, now.hour, now.minute);
@@ -2561,11 +989,14 @@ class CalendarView extends ConsumerWidget {
   void _showAddDialog(BuildContext context, WidgetRef ref, DateTime start) {
     final activitiesAsync = ref.read(activitiesStreamProvider);
     activitiesAsync.whenData((activities) {
-      if(activities.isEmpty) return;
+      if(activities.isEmpty) {
+        _showNoActivitiesAlert(context);
+        return;
+      }
       showCupertinoModalPopup(
           context: context,
           builder: (_) => CupertinoActionSheet(
-            title: Text('Log Activity starting at ${DateFormat('HH:mm').format(start)}'),
+            title: Text('Log Activity at ${DateFormat('HH:mm').format(start)}'),
             actions: activities.map((a) => CupertinoActionSheetAction(
               onPressed: () {
                 ref.read(appControllerProvider).addSegment(start, start.add(const Duration(hours: 1)), a.id);
@@ -2579,6 +1010,17 @@ class CalendarView extends ConsumerWidget {
     });
   }
 
+  void _showNoActivitiesAlert(BuildContext context) {
+    showCupertinoDialog(
+        context: context,
+        builder: (ctx) => CupertinoAlertDialog(
+          title: const Text("No Activities"),
+          content: const Text("Create activities in the Timer tab first."),
+          actions: [CupertinoDialogAction(child: const Text("OK"), onPressed: () => Navigator.pop(ctx))],
+        )
+    );
+  }
+
   void _editSegment(BuildContext context, WidgetRef ref, SessionWithActivity item) {
     DateTime start = item.session.startTime;
     DateTime end = item.session.endTime ?? DateTime.now();
@@ -2588,7 +1030,7 @@ class CalendarView extends ConsumerWidget {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => Container(
           height: 400,
-          color: CupertinoColors.systemBackground,
+          color: CupertinoColors.systemBackground.resolveFrom(context),
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2642,7 +1084,7 @@ class CalendarView extends ConsumerWidget {
     showCupertinoModalPopup(
         context: context,
         builder: (_) => Container(
-          height: 200, color: CupertinoColors.systemBackground,
+          height: 200, color: CupertinoColors.systemBackground.resolveFrom(context),
           child: CupertinoDatePicker(
             mode: CupertinoDatePickerMode.time,
             initialDateTime: initial,
@@ -2668,6 +1110,46 @@ class BodyMapView extends StatelessWidget {
   }
 }
 
+// --- 5. SETTINGS ---
+
+class SettingsView extends ConsumerWidget {
+  const SettingsView({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(themeModeProvider);
+    final isDark = theme == ThemeMode.dark;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Settings', style: CupertinoTheme.of(context).textTheme.navLargeTitleTextStyle),
+            const Gap(30),
+            GlassCard(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Dark Mode', style: TextStyle(fontSize: 17)),
+                  AdaptiveSwitch(
+                    value: isDark,
+                    onChanged: (val) {
+                      ref.read(themeModeProvider.notifier).state = val ? ThemeMode.dark : ThemeMode.light;
+                    },
+                  )
+                ],
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // --- HELPERS ---
 
 class GlassCard extends StatelessWidget {
@@ -2680,13 +1162,13 @@ class GlassCard extends StatelessWidget {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: CupertinoColors.white.withOpacity(0.5),
+        color: CupertinoColors.systemBackground.resolveFrom(context).withOpacity(0.5),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: CupertinoColors.white.withOpacity(0.4), width: 1.5),
+        border: Border.all(color: CupertinoColors.systemGrey4.resolveFrom(context).withOpacity(0.4), width: 1.5),
         boxShadow: [BoxShadow(color: const Color(0xFF000000).withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
       ),
       child: child,
-    ).asGlass(tintColor: Colors.white, clipBorderRadius: BorderRadius.circular(24), blurX: 10, blurY: 10);
+    ).asGlass(tintColor: CupertinoColors.systemBackground.resolveFrom(context), clipBorderRadius: BorderRadius.circular(24), blurX: 10, blurY: 10);
   }
 }
 

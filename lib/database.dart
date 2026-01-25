@@ -11,13 +11,12 @@ part 'database.g.dart';
 class Activities extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text()();
-  TextColumn get color => text()(); // Hex 0xFF...
+  TextColumn get color => text()();
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
 }
 
 class Sessions extends Table {
   IntColumn get id => integer().autoIncrement()();
-  // CASCADE: Если удалить активность, удалится и история (чтобы не было ошибок)
   IntColumn get activityId => integer().references(Activities, #id, onDelete: KeyAction.cascade)();
   DateTimeColumn get startTime => dateTime()();
   DateTimeColumn get endTime => dateTime().nullable()();
@@ -46,17 +45,11 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (Migrator m) async {
       await m.createAll();
-      // Default Data
       await into(activities).insert(ActivitiesCompanion.insert(name: 'Coding', color: '0xFF007AFF', sortOrder: const Value(0)));
-      await into(activities).insert(ActivitiesCompanion.insert(name: 'Sport', color: '0xFF34C759', sortOrder: const Value(2)));
-      await into(activities).insert(ActivitiesCompanion.insert(name: 'Rest', color: '0xFFFF9500', sortOrder: const Value(3)));
-    },
-    onUpgrade: (Migrator m, int from, int to) async {
-      // Здесь в будущем будем описывать миграции (например, добавление колонок),
-      // чтобы данные не терялись при обновлении версии schemaVersion.
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Sport', color: '0xFF34C759', sortOrder: const Value(1)));
+      await into(activities).insert(ActivitiesCompanion.insert(name: 'Rest', color: '0xFFFF9500', sortOrder: const Value(2)));
     },
     beforeOpen: (details) async {
-      // Включаем каскадное удаление (SQLite foreign keys)
       await customStatement('PRAGMA foreign_keys = ON');
     },
   );
@@ -65,7 +58,6 @@ class AppDatabase extends _$AppDatabase {
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dbFolder = await getApplicationDocumentsDirectory();
-    // Стабильное имя файла. Не меняй его в будущих версиях, если хочешь сохранить данные.
     final file = File(p.join(dbFolder.path, 'tempo_storage.sqlite'));
     return NativeDatabase(file);
   });
