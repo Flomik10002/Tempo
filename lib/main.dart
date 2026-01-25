@@ -1,9 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider, Material, Icons, DefaultMaterialLocalizations;
+import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider, Material, Icons, DefaultMaterialLocalizations, ReorderableListView;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cupertino_native/cupertino_native.dart';
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart'; // Import adaptive
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:gap/gap.dart';
 import 'package:glass/glass.dart';
 import 'package:drift/drift.dart' show Value;
@@ -116,14 +116,15 @@ class HomeView extends ConsumerWidget {
               ),
             ),
             const Gap(30),
+            // Header with Gear Icon
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('Activities', style: CupertinoTheme.of(context).textTheme.navTitleTextStyle),
                 CupertinoButton(
                   padding: EdgeInsets.zero,
-                  child: const Icon(CupertinoIcons.add),
-                  onPressed: () => _showAddActivityDialog(context, ref),
+                  child: const CNIcon(symbol: CNSymbol('gear'), color: CupertinoColors.systemGrey),
+                  onPressed: () => Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const ActivitiesManagerPage())),
                 ),
               ],
             ),
@@ -138,51 +139,6 @@ class HomeView extends ConsumerWidget {
               loading: () => const CupertinoActivityIndicator(),
               error: (e, s) => Text('$e'),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showAddActivityDialog(BuildContext context, WidgetRef ref) {
-    final nameCtrl = TextEditingController();
-    String selectedColor = '0xFF007AFF';
-    final colors = ['0xFF007AFF', '0xFFFF2D55', '0xFF34C759', '0xFFFF9500', '0xFFAF52DE', '0xFF5856D6'];
-
-    showCupertinoDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => CupertinoAlertDialog(
-          title: const Text('New Activity'),
-          content: Column(
-            children: [
-              const Gap(10),
-              CupertinoTextField(controller: nameCtrl, placeholder: 'Activity Name'),
-              const Gap(15),
-              Wrap(
-                spacing: 8, runSpacing: 8,
-                children: colors.map((c) => GestureDetector(
-                  onTap: () => setState(() => selectedColor = c),
-                  child: Container(
-                    width: 24, height: 24,
-                    decoration: BoxDecoration(
-                      color: Color(int.parse(c)),
-                      shape: BoxShape.circle,
-                      border: selectedColor == c ? Border.all(color: Colors.black, width: 2) : null,
-                    ),
-                  ),
-                )).toList(),
-              )
-            ],
-          ),
-          actions: [
-            CupertinoDialogAction(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            CupertinoDialogAction(onPressed: () {
-              if (nameCtrl.text.isNotEmpty) {
-                ref.read(appControllerProvider).addActivity(nameCtrl.text, selectedColor);
-                Navigator.pop(ctx);
-              }
-            }, child: const Text('Add')),
           ],
         ),
       ),
@@ -221,6 +177,130 @@ class _ActivityChip extends ConsumerWidget {
             const Gap(8),
             Text(activity.name, style: TextStyle(color: isActive ? Colors.white : CupertinoColors.black, fontWeight: FontWeight.w500)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- ACTIVITIES MANAGER PAGE ---
+
+class ActivitiesManagerPage extends ConsumerWidget {
+  const ActivitiesManagerPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activitiesAsync = ref.watch(activitiesStreamProvider);
+
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: const Text('Manage Activities'),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          child: const Icon(CupertinoIcons.add),
+          onPressed: () => _showEditor(context, ref, null),
+        ),
+      ),
+      child: SafeArea(
+        child: activitiesAsync.when(
+          data: (activities) {
+            if (activities.isEmpty) return const Center(child: Text('No activities'));
+            return ListView.separated(
+              padding: const EdgeInsets.all(20),
+              itemCount: activities.length,
+              separatorBuilder: (_,__) => const Gap(12),
+              itemBuilder: (ctx, index) {
+                final act = activities[index];
+                return Dismissible(
+                  key: Key('act_${act.id}'),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20),
+                    color: CupertinoColors.destructiveRed,
+                    child: const Icon(CupertinoIcons.delete, color: Colors.white),
+                  ),
+                  onDismissed: (_) => ref.read(appControllerProvider).deleteActivity(act.id),
+                  child: GestureDetector(
+                    onTap: () => _showEditor(context, ref, act),
+                    child: GlassCard(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          Container(width: 20, height: 20, decoration: BoxDecoration(color: Color(int.parse(act.color)), shape: BoxShape.circle)),
+                          const Gap(16),
+                          Text(act.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w500)),
+                          const Spacer(),
+                          const Icon(CupertinoIcons.chevron_right, color: CupertinoColors.systemGrey3),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+          loading: () => const Center(child: CupertinoActivityIndicator()),
+          error: (e,s) => Center(child: Text('$e')),
+        ),
+      ),
+    );
+  }
+
+  void _showEditor(BuildContext context, WidgetRef ref, Activity? activity) {
+    final nameCtrl = TextEditingController(text: activity?.name ?? '');
+    String selectedColor = activity?.color ?? '0xFF007AFF';
+    final colors = ['0xFF007AFF', '0xFFFF2D55', '0xFF34C759', '0xFFFF9500', '0xFFAF52DE', '0xFF5856D6', '0xFF8E8E93', '0xFF000000'];
+
+    showCupertinoModalPopup(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) => Container(
+          height: 350,
+          padding: const EdgeInsets.all(24),
+          decoration: const BoxDecoration(
+            color: CupertinoColors.systemBackground,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(activity == null ? 'New Activity' : 'Edit Activity', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const Gap(20),
+              CupertinoTextField(controller: nameCtrl, placeholder: 'Name', autofocus: true),
+              const Gap(20),
+              const Text('Color', style: TextStyle(color: CupertinoColors.systemGrey)),
+              const Gap(10),
+              Wrap(
+                spacing: 12, runSpacing: 12,
+                children: colors.map((c) => GestureDetector(
+                  onTap: () => setState(() => selectedColor = c),
+                  child: Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      color: Color(int.parse(c)),
+                      shape: BoxShape.circle,
+                      border: selectedColor == c ? Border.all(color: CupertinoColors.label, width: 3) : null,
+                    ),
+                  ),
+                )).toList(),
+              ),
+              const Spacer(),
+              CNButton(
+                label: 'Save',
+                onPressed: () {
+                  if (nameCtrl.text.isNotEmpty) {
+                    if (activity == null) {
+                      ref.read(appControllerProvider).addActivity(nameCtrl.text, selectedColor);
+                    } else {
+                      ref.read(appControllerProvider).updateActivity(activity.copyWith(name: nameCtrl.text, color: selectedColor));
+                    }
+                    Navigator.pop(ctx);
+                  }
+                },
+              )
+            ],
+          ),
         ),
       ),
     );
@@ -340,7 +420,7 @@ class _TasksViewState extends ConsumerState<TasksView> {
                 );
               },
               loading: () => const Center(child: CupertinoActivityIndicator()),
-              error: (e,s) => Center(child: Text('$e')),
+              error: (e,s) => Center(child: Text('Error: $e')),
             ),
           ),
         ],
@@ -359,7 +439,7 @@ class _TasksViewState extends ConsumerState<TasksView> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => Container(
           padding: const EdgeInsets.all(20),
-          height: 500,
+          height: 550, // More space for keyboard
           decoration: const BoxDecoration(
             color: CupertinoColors.systemBackground,
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -443,15 +523,30 @@ class CalendarView extends ConsumerWidget {
     return SafeArea(
       child: Column(
         children: [
-          // Header & Days Ribbon
+          // Header & Add Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Row(
+              children: [
+                Text(DateFormat.yMMMMd().format(selectedDate), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                CNButton.icon(
+                  icon: const CNSymbol('plus'),
+                  onPressed: () => _addManualLog(context, ref, selectedDate),
+                ),
+              ],
+            ),
+          ),
+
+          // Days Ribbon
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 10),
             child: SizedBox(
               height: 60,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
-                itemCount: 30, // Last 30 days
-                reverse: true, // Start from today
+                itemCount: 30,
+                reverse: true,
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 itemBuilder: (ctx, index) {
                   final date = DateTime.now().subtract(Duration(days: index));
@@ -555,23 +650,31 @@ class CalendarView extends ConsumerWidget {
     return diff.toDouble().clamp(20.0, 1440.0); // Minimum 20px height
   }
 
+  // Quick add by tapping timeline
   void _onTapEmpty(BuildContext context, WidgetRef ref, double dy, DateTime date) {
-    // Calculate time from tap position
     final hour = (dy / 60).floor();
     final tapTime = DateTime(date.year, date.month, date.day, hour);
-    final endTime = tapTime.add(const Duration(hours: 1));
+    _showAddDialog(context, ref, tapTime);
+  }
 
-    // Pick activity
+  // Manual add button
+  void _addManualLog(BuildContext context, WidgetRef ref, DateTime date) {
+    final now = DateTime.now();
+    final tapTime = DateTime(date.year, date.month, date.day, now.hour, now.minute);
+    _showAddDialog(context, ref, tapTime);
+  }
+
+  void _showAddDialog(BuildContext context, WidgetRef ref, DateTime start) {
     final activitiesAsync = ref.read(activitiesStreamProvider);
     activitiesAsync.whenData((activities) {
       if(activities.isEmpty) return;
       showCupertinoModalPopup(
           context: context,
           builder: (_) => CupertinoActionSheet(
-            title: Text('Add Segment at $hour:00'),
+            title: Text('Log Activity starting at ${DateFormat('HH:mm').format(start)}'),
             actions: activities.map((a) => CupertinoActionSheetAction(
               onPressed: () {
-                ref.read(appControllerProvider).addSegment(tapTime, endTime, a.id);
+                ref.read(appControllerProvider).addSegment(start, start.add(const Duration(hours: 1)), a.id);
                 Navigator.pop(context);
               },
               child: Text(a.name, style: TextStyle(color: Color(int.parse(a.color)))),

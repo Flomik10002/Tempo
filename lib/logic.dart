@@ -27,15 +27,19 @@ final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>(
 
   switch (filter) {
     case TaskFilter.active:
+    // Активные: не выполненные (исключаем done)
       query.where((t) => t.isCompleted.not());
       break;
     case TaskFilter.scheduled:
+    // Запланированные: не выполненные И есть дата
       query.where((t) => t.isCompleted.not() & t.dueDate.isNotNull());
       break;
     case TaskFilter.repeating:
+    // Повторяющиеся: не выполненные И repeating=true
       query.where((t) => t.isCompleted.not() & t.isRepeating);
       break;
     case TaskFilter.done:
+    // Выполненные: ТОЛЬКО выполненные
       query.where((t) => t.isCompleted);
       break;
   }
@@ -47,7 +51,6 @@ final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>(
 
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
-// Сессии для конкретного дня
 final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWithActivity>, DateTime>((ref, date) {
   final db = ref.watch(databaseProvider);
 
@@ -60,16 +63,20 @@ final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWi
     ..where(
         db.sessions.startTime.isBiggerOrEqualValue(startOfDay) &
         db.sessions.startTime.isSmallerThanValue(endOfDay) &
-        db.sessions.endTime.isNotNull() // Only completed segments in calendar
+        db.sessions.endTime.isNotNull()
     );
 
   return query.watch().map((rows) {
     return rows.map((row) {
+      // Activity может быть null если удалили активность без каскада (но у нас каскад)
+      // На всякий случай фильтруем
+      if (row.readTableOrNull(db.activities) == null) return null;
+
       return SessionWithActivity(
         session: row.readTable(db.sessions),
         activity: row.readTable(db.activities),
       );
-    }).toList();
+    }).whereType<SessionWithActivity>().toList();
   });
 });
 
@@ -123,6 +130,15 @@ class AppController {
   // Activities
   Future<void> addActivity(String name, String color) async {
     await db.into(db.activities).insert(ActivitiesCompanion.insert(name: name, color: color));
+  }
+
+  Future<void> updateActivity(Activity activity) async {
+    await db.update(db.activities).replace(activity);
+  }
+
+  Future<void> deleteActivity(int id) async {
+    // Cascade delete настроен в БД, сессии удалятся сами
+    await (db.delete(db.activities)..where((a) => a.id.equals(id))).go();
   }
 
   // Tasks

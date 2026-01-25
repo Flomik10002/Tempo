@@ -17,7 +17,8 @@ class Activities extends Table {
 
 class Sessions extends Table {
   IntColumn get id => integer().autoIncrement()();
-  IntColumn get activityId => integer().references(Activities, #id)();
+  // CASCADE: Если удалить активность, удалится и история (чтобы не было ошибок)
+  IntColumn get activityId => integer().references(Activities, #id, onDelete: KeyAction.cascade)();
   DateTimeColumn get startTime => dateTime()();
   DateTimeColumn get endTime => dateTime().nullable()();
 }
@@ -25,7 +26,7 @@ class Sessions extends Table {
 class Tasks extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get title => text()();
-  TextColumn get description => text().nullable()(); // NEW: Description
+  TextColumn get description => text().nullable()();
   BoolColumn get isCompleted => boolean().withDefault(const Constant(false))();
   BoolColumn get isRepeating => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
@@ -45,11 +46,18 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (Migrator m) async {
       await m.createAll();
-      // Seed data
+      // Default Data
       await into(activities).insert(ActivitiesCompanion.insert(name: 'Coding', color: '0xFF007AFF', sortOrder: const Value(0)));
-      await into(activities).insert(ActivitiesCompanion.insert(name: 'Design', color: '0xFFAF52DE', sortOrder: const Value(1)));
       await into(activities).insert(ActivitiesCompanion.insert(name: 'Sport', color: '0xFF34C759', sortOrder: const Value(2)));
       await into(activities).insert(ActivitiesCompanion.insert(name: 'Rest', color: '0xFFFF9500', sortOrder: const Value(3)));
+    },
+    onUpgrade: (Migrator m, int from, int to) async {
+      // Здесь в будущем будем описывать миграции (например, добавление колонок),
+      // чтобы данные не терялись при обновлении версии schemaVersion.
+    },
+    beforeOpen: (details) async {
+      // Включаем каскадное удаление (SQLite foreign keys)
+      await customStatement('PRAGMA foreign_keys = ON');
     },
   );
 }
@@ -57,8 +65,8 @@ class AppDatabase extends _$AppDatabase {
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dbFolder = await getApplicationDocumentsDirectory();
-    // V4 - чтобы добавить поле description
-    final file = File(p.join(dbFolder.path, 'tempo_v4.sqlite'));
+    // Стабильное имя файла. Не меняй его в будущих версиях, если хочешь сохранить данные.
+    final file = File(p.join(dbFolder.path, 'tempo_storage.sqlite'));
     return NativeDatabase(file);
   });
 }
