@@ -1,9 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider, Material, Icons, DefaultMaterialLocalizations, ReorderableListView;
+import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, BoxShadow, Offset, FontFeature, Divider, Material, Icons, DefaultMaterialLocalizations, ReorderableListView, MediaQuery;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cupertino_native/cupertino_native.dart';
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:gap/gap.dart';
 import 'package:glass/glass.dart';
 import 'package:drift/drift.dart' show Value;
@@ -91,28 +90,33 @@ class HomeView extends ConsumerWidget {
         child: Column(
           children: [
             const Gap(20),
-            GlassCard(
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Current Session', style: TextStyle(color: CupertinoColors.systemGrey)),
-                      if (activeSession != null)
-                        const CNIcon(symbol: CNSymbol('record.circle', color: CupertinoColors.systemRed))
-                    ],
-                  ),
-                  const Gap(10),
-                  Text(
-                    _formatDuration(duration),
-                    style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w200, fontFeatures: [FontFeature.tabularFigures()]),
-                  ),
-                  const Gap(20),
-                  if (activeSession != null)
-                    CNButton.icon(icon: const CNSymbol('stop.fill'), onPressed: () => ref.read(appControllerProvider).toggleSession(activeSession.activityId))
-                  else
-                    const Text('Tap an activity to start', style: TextStyle(color: CupertinoColors.systemBlue)),
-                ],
+            // Fixed height container to prevent jumping UI
+            SizedBox(
+              height: 220,
+              child: GlassCard(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Current Session', style: TextStyle(color: CupertinoColors.systemGrey)),
+                        if (activeSession != null)
+                          const CNIcon(symbol: CNSymbol('record.circle', color: CupertinoColors.systemRed))
+                      ],
+                    ),
+                    const Gap(10),
+                    Text(
+                      _formatDuration(duration),
+                      style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w200, fontFeatures: [FontFeature.tabularFigures()]),
+                    ),
+                    const Gap(20),
+                    if (activeSession != null)
+                      CNButton.icon(icon: const CNSymbol('stop.fill'), onPressed: () => ref.read(appControllerProvider).toggleSession(activeSession.activityId))
+                    else
+                      const Text('Tap an activity to start', style: TextStyle(color: CupertinoColors.systemBlue)),
+                  ],
+                ),
               ),
             ),
             const Gap(30),
@@ -124,20 +128,25 @@ class HomeView extends ConsumerWidget {
                 CupertinoButton(
                   padding: EdgeInsets.zero,
                   child: const CNIcon(symbol: CNSymbol('gear'), color: CupertinoColors.systemGrey),
-                  onPressed: () => Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const ActivitiesManagerPage())),
+                  // Fix: rootNavigator: true ensure it opens over everything
+                  onPressed: () => Navigator.of(context, rootNavigator: true).push(CupertinoPageRoute(builder: (_) => const ActivitiesManagerPage())),
                 ),
               ],
             ),
             const Gap(10),
-            activitiesAsync.when(
-              data: (activities) => Wrap(
-                spacing: 12, runSpacing: 12,
-                children: [
-                  ...activities.map((act) => _ActivityChip(activity: act, isActive: activeSession?.activityId == act.id)),
-                ],
+            Expanded(
+              child: SingleChildScrollView(
+                child: activitiesAsync.when(
+                  data: (activities) => Wrap(
+                    spacing: 12, runSpacing: 12,
+                    children: [
+                      ...activities.map((act) => _ActivityChip(activity: act, isActive: activeSession?.activityId == act.id)),
+                    ],
+                  ),
+                  loading: () => const CupertinoActivityIndicator(),
+                  error: (e, s) => Text('$e'),
+                ),
               ),
-              loading: () => const CupertinoActivityIndicator(),
-              error: (e, s) => Text('$e'),
             ),
           ],
         ),
@@ -252,54 +261,70 @@ class ActivitiesManagerPage extends ConsumerWidget {
     String selectedColor = activity?.color ?? '0xFF007AFF';
     final colors = ['0xFF007AFF', '0xFFFF2D55', '0xFF34C759', '0xFFFF9500', '0xFFAF52DE', '0xFF5856D6', '0xFF8E8E93', '0xFF000000'];
 
-    showCupertinoModalPopup(
+    // Fix: Using Dialog instead of ModalPopup to center it and handle keyboard
+    showCupertinoDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => Container(
-          height: 350,
-          padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(
-            color: CupertinoColors.systemBackground,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(activity == null ? 'New Activity' : 'Edit Activity', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const Gap(20),
-              CupertinoTextField(controller: nameCtrl, placeholder: 'Name', autofocus: true),
-              const Gap(20),
-              const Text('Color', style: TextStyle(color: CupertinoColors.systemGrey)),
-              const Gap(10),
-              Wrap(
-                spacing: 12, runSpacing: 12,
-                children: colors.map((c) => GestureDetector(
-                  onTap: () => setState(() => selectedColor = c),
-                  child: Container(
-                    width: 32, height: 32,
-                    decoration: BoxDecoration(
-                      color: Color(int.parse(c)),
-                      shape: BoxShape.circle,
-                      border: selectedColor == c ? Border.all(color: CupertinoColors.label, width: 3) : null,
+        builder: (context, setState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: Center(
+            child: Material( // Required for some widgets
+              color: Colors.transparent,
+              child: Container(
+                width: 300,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemBackground,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(activity == null ? 'New Activity' : 'Edit Activity', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const Gap(20),
+                    CupertinoTextField(controller: nameCtrl, placeholder: 'Name', autofocus: true),
+                    const Gap(20),
+                    const Text('Color', style: TextStyle(color: CupertinoColors.systemGrey)),
+                    const Gap(10),
+                    Wrap(
+                      spacing: 12, runSpacing: 12,
+                      children: colors.map((c) => GestureDetector(
+                        onTap: () => setState(() => selectedColor = c),
+                        child: Container(
+                          width: 32, height: 32,
+                          decoration: BoxDecoration(
+                            color: Color(int.parse(c)),
+                            shape: BoxShape.circle,
+                            border: selectedColor == c ? Border.all(color: CupertinoColors.label, width: 3) : null,
+                          ),
+                        ),
+                      )).toList(),
                     ),
-                  ),
-                )).toList(),
+                    const Gap(24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        CupertinoButton(child: const Text('Cancel'), onPressed: () => Navigator.pop(ctx)),
+                        CupertinoButton(
+                          child: const Text('Save'),
+                          onPressed: () {
+                            if (nameCtrl.text.isNotEmpty) {
+                              if (activity == null) {
+                                ref.read(appControllerProvider).addActivity(nameCtrl.text, selectedColor);
+                              } else {
+                                ref.read(appControllerProvider).updateActivity(activity.copyWith(name: nameCtrl.text, color: selectedColor));
+                              }
+                              Navigator.pop(ctx);
+                            }
+                          },
+                        ),
+                      ],
+                    )
+                  ],
+                ),
               ),
-              const Spacer(),
-              CNButton(
-                label: 'Save',
-                onPressed: () {
-                  if (nameCtrl.text.isNotEmpty) {
-                    if (activity == null) {
-                      ref.read(appControllerProvider).addActivity(nameCtrl.text, selectedColor);
-                    } else {
-                      ref.read(appControllerProvider).updateActivity(activity.copyWith(name: nameCtrl.text, color: selectedColor));
-                    }
-                    Navigator.pop(ctx);
-                  }
-                },
-              )
-            ],
+            ),
           ),
         ),
       ),
@@ -335,19 +360,23 @@ class _TasksViewState extends ConsumerState<TasksView> {
               ],
             ),
           ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                AdaptiveSegmentedControl(
-                  labels: const ['Active', 'Scheduled', 'Repeating', 'Done'],
-                  selectedIndex: _filter.index,
-                  onValueChanged: (index) {
-                    setState(() => _filter = TaskFilter.values[index]);
-                  },
-                ),
-              ],
+            child: SizedBox(
+              width: double.infinity,
+              // Fix: Replaced AdaptiveSegmentedControl with standard Cupertino to prevent crashes
+              child: CupertinoSlidingSegmentedControl<int>(
+                groupValue: _filter.index,
+                children: const {
+                  0: Text('Active'),
+                  1: Text('Scheduled'),
+                  2: Text('Repeat'),
+                  3: Text('Done'),
+                },
+                onValueChanged: (index) {
+                  if (index != null) setState(() => _filter = TaskFilter.values[index]);
+                },
+              ),
             ),
           ),
           const Gap(10),
@@ -378,11 +407,18 @@ class _TasksViewState extends ConsumerState<TasksView> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              AdaptiveCheckbox(
-                                value: task.isCompleted,
-                                onChanged: (val) {
-                                  ref.read(appControllerProvider).toggleTask(task);
-                                },
+                              // Manual Checkbox to avoid dependency crash
+                              GestureDetector(
+                                onTap: () => ref.read(appControllerProvider).toggleTask(task),
+                                child: Container(
+                                  width: 24, height: 24,
+                                  decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: task.isCompleted ? CupertinoColors.activeBlue : Colors.transparent,
+                                      border: Border.all(color: task.isCompleted ? CupertinoColors.activeBlue : CupertinoColors.systemGrey3, width: 2)
+                                  ),
+                                  child: task.isCompleted ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
+                                ),
                               ),
                               const Gap(12),
                               Expanded(child: Column(
@@ -434,62 +470,76 @@ class _TasksViewState extends ConsumerState<TasksView> {
     DateTime? pickedDate = task?.dueDate;
     bool isRepeating = task?.isRepeating ?? false;
 
-    showCupertinoModalPopup(
+    // Fix: Using Dialog instead of ModalPopup for better editing experience
+    showCupertinoDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => Container(
-          padding: const EdgeInsets.all(20),
-          height: 550, // More space for keyboard
-          decoration: const BoxDecoration(
-            color: CupertinoColors.systemBackground,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(task == null ? 'New Task' : 'Edit Task', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  CupertinoButton(child: const Text('Save'), onPressed: () {
-                    if (titleCtrl.text.isNotEmpty) {
-                      if (task == null) {
-                        ref.read(appControllerProvider).addTask(titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
-                      } else {
-                        ref.read(appControllerProvider).updateTask(task, titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
-                      }
-                      Navigator.pop(ctx);
-                    }
-                  }),
-                ],
-              ),
-              const Gap(20),
-              CupertinoTextField(controller: titleCtrl, placeholder: 'Title', autofocus: task == null),
-              const Gap(12),
-              CupertinoTextField(controller: descCtrl, placeholder: 'Description', maxLines: 3),
-              const Gap(20),
+        builder: (context, setState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 320,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemBackground,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(task == null ? 'New Task' : 'Edit Task', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const Gap(20),
+                    CupertinoTextField(controller: titleCtrl, placeholder: 'Title', autofocus: task == null),
+                    const Gap(12),
+                    CupertinoTextField(controller: descCtrl, placeholder: 'Description', maxLines: 3),
+                    const Gap(20),
 
-              // Options
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Due Date'),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    child: Text(pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(pickedDate!)),
-                    onPressed: () => _pickDate(context, (d) => setState(() => pickedDate = d)),
-                  )
-                ],
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Due Date'),
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          child: Text(pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(pickedDate!)),
+                          onPressed: () => _pickDate(context, (d) => setState(() => pickedDate = d)),
+                        )
+                      ],
+                    ),
+                    const Divider(),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Repeat Daily'),
+                        CupertinoSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
+                      ],
+                    ),
+                    const Gap(20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        CupertinoButton(child: const Text('Cancel'), onPressed: () => Navigator.pop(ctx)),
+                        CupertinoButton(
+                          child: const Text('Save'),
+                          onPressed: () {
+                            if (titleCtrl.text.isNotEmpty) {
+                              if (task == null) {
+                                ref.read(appControllerProvider).addTask(titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
+                              } else {
+                                ref.read(appControllerProvider).updateTask(task, titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
+                              }
+                              Navigator.pop(ctx);
+                            }
+                          },
+                        ),
+                      ],
+                    )
+                  ],
+                ),
               ),
-              const Divider(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Repeat Daily'),
-                  AdaptiveSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -532,6 +582,7 @@ class CalendarView extends ConsumerWidget {
                 const Spacer(),
                 CNButton.icon(
                   icon: const CNSymbol('plus'),
+                  // Fix: passed context correctly
                   onPressed: () => _addManualLog(context, ref, selectedDate),
                 ),
               ],
@@ -660,6 +711,7 @@ class CalendarView extends ConsumerWidget {
   // Manual add button
   void _addManualLog(BuildContext context, WidgetRef ref, DateTime date) {
     final now = DateTime.now();
+    // Default to current time, but on the selected date
     final tapTime = DateTime(date.year, date.month, date.day, now.hour, now.minute);
     _showAddDialog(context, ref, tapTime);
   }
