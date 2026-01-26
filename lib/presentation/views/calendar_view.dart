@@ -13,6 +13,7 @@ class CalendarView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedDate = ref.watch(selectedDateProvider);
     final sessionsAsync = ref.watch(sessionsForDateProvider(selectedDate));
+    final labelColor = CupertinoColors.label.resolveFrom(context);
 
     return SafeArea(
       child: Column(
@@ -23,6 +24,7 @@ class CalendarView extends ConsumerWidget {
             child: Row(
               children: [
                 AdaptiveButton(
+                  
                   style: AdaptiveButtonStyle.plain,
                   label: "Today",
                   onPressed: () => ref.read(selectedDateProvider.notifier).state = DateTime.now(),
@@ -30,11 +32,12 @@ class CalendarView extends ConsumerWidget {
                 const Spacer(),
                 Text(
                     DateFormat.yMMMMd().format(selectedDate),
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: labelColor)
                 ),
                 const Spacer(),
                 AdaptiveButton.icon(
-                  icon: Icons.add,
+                  
+                  icon: CupertinoIcons.add,
                   style: AdaptiveButtonStyle.plain,
                   onPressed: () => _addManualLog(context, ref, selectedDate),
                 ),
@@ -60,14 +63,14 @@ class CalendarView extends ConsumerWidget {
                     child: Container(
                       width: 50, margin: const EdgeInsets.symmetric(horizontal: 4),
                       decoration: BoxDecoration(
-                        color: isSelected ? Theme.of(context).primaryColor : Colors.transparent,
+                        color: isSelected ? CupertinoTheme.of(context).primaryColor : Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(DateFormat.E().format(date), style: TextStyle(fontSize: 12, color: isSelected ? Colors.white : Colors.grey)),
-                          Text(date.day.toString(), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : null)),
+                          Text(DateFormat.E().format(date), style: TextStyle(fontSize: 12, color: isSelected ? Colors.white : CupertinoColors.systemGrey)),
+                          Text(date.day.toString(), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : labelColor)),
                         ],
                       ),
                     ),
@@ -92,10 +95,10 @@ class CalendarView extends ConsumerWidget {
                         top: i * 60.0, left: 0, right: 0,
                         child: Container(
                           height: 60,
-                          decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey.withOpacity(0.2)))),
+                          decoration: BoxDecoration(border: Border(top: BorderSide(color: CupertinoColors.separator.resolveFrom(context).withOpacity(0.5)))),
                           child: Padding(
                             padding: const EdgeInsets.only(left: 10, top: 5),
-                            child: Text('${i.toString().padLeft(2, '0')}:00', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                            child: Text('${i.toString().padLeft(2, '0')}:00', style: const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey)),
                           ),
                         ),
                       ),
@@ -118,17 +121,29 @@ class CalendarView extends ConsumerWidget {
 
                           return Positioned(
                             top: top, left: 60, right: 10, height: height,
-                            child: AdaptivePopupMenuButton.widget(
-                              items: [
-                                const AdaptivePopupMenuItem(label: 'Edit', value: 'edit', icon: Icons.edit),
-                                const AdaptivePopupMenuItem(label: 'Delete', value: 'delete', icon: Icons.delete),
-                              ],
-                              onSelected: (idx, entry) {
-                                if (entry.value == 'delete') {
-                                  ref.read(appControllerProvider).deleteSession(item.session.id);
-                                } else if (entry.value == 'edit') {
-                                  _editSegment(context, ref, item);
-                                }
+                            // БЕЗОПАСНАЯ РЕАЛИЗАЦИЯ: Обычный GestureDetector вместо тяжелого нативного виджета
+                            child: GestureDetector(
+                              onTap: () {
+                                showCupertinoModalPopup(
+                                    context: context,
+                                    builder: (ctx) => CupertinoActionSheet(
+                                      actions: [
+                                        CupertinoActionSheetAction(
+                                          onPressed: () { Navigator.pop(ctx); _editSegment(context, ref, item); },
+                                          child: const Text('Edit'),
+                                        ),
+                                        CupertinoActionSheetAction(
+                                          isDestructiveAction: true,
+                                          onPressed: () { Navigator.pop(ctx); ref.read(appControllerProvider).deleteSession(item.session.id); },
+                                          child: const Text('Delete'),
+                                        ),
+                                      ],
+                                      cancelButton: CupertinoActionSheetAction(
+                                        onPressed: () => Navigator.pop(ctx),
+                                        child: const Text('Cancel'),
+                                      ),
+                                    )
+                                );
                               },
                               child: Container(
                                 decoration: BoxDecoration(
@@ -155,8 +170,6 @@ class CalendarView extends ConsumerWidget {
       ),
     );
   }
-
-  // Helpers... (addManualLog, editSegment, calculateTop, calculateHeight, same as before but use AdaptiveDatePicker)
 
   double _calculateTop(DateTime start) => (start.hour * 60.0) + start.minute;
   double _calculateHeight(DateTime start, DateTime? end) {
@@ -207,44 +220,47 @@ class CalendarView extends ConsumerWidget {
     showCupertinoModalPopup(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => Container(
-          height: 350,
-          color: Theme.of(context).scaffoldBackgroundColor,
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              Text("Edit Time", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const Gap(20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Start'),
-                  AdaptiveButton(label: DateFormat('HH:mm').format(start), onPressed: () async {
-                    final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(start));
-                    if(t!=null) setState(() => start = DateTime(start.year, start.month, start.day, t.hour, t.minute));
-                  }),
-                ],
-              ),
-              const Gap(10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('End'),
-                  AdaptiveButton(label: DateFormat('HH:mm').format(end), onPressed: () async {
-                    final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(end));
-                    if(t!=null) setState(() => end = DateTime(end.year, end.month, end.day, t.hour, t.minute));
-                  }),
-                ],
-              ),
-              const Spacer(),
-              AdaptiveButton(
-                  label: 'Save Changes',
-                  onPressed: () {
-                    ref.read(appControllerProvider).updateSegmentTime(item.session.id, start, end);
-                    Navigator.pop(ctx);
-                  }
-              )
-            ],
+        builder: (context, setState) => Material(
+          color: Colors.transparent,
+          child: Container(
+            height: 350,
+            color: CupertinoTheme.of(context).scaffoldBackgroundColor,
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Text("Edit Time", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoColors.label.resolveFrom(context))),
+                const Gap(20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Start'),
+                    AdaptiveButton( label: DateFormat('HH:mm').format(start), onPressed: () async {
+                      final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(start));
+                      if(t!=null) setState(() => start = DateTime(start.year, start.month, start.day, t.hour, t.minute));
+                    }),
+                  ],
+                ),
+                const Gap(10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('End'),
+                    AdaptiveButton( label: DateFormat('HH:mm').format(end), onPressed: () async {
+                      final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(end));
+                      if(t!=null) setState(() => end = DateTime(end.year, end.month, end.day, t.hour, t.minute));
+                    }),
+                  ],
+                ),
+                const Spacer(),
+                AdaptiveButton(
+                    label: 'Save Changes',
+                    onPressed: () {
+                      ref.read(appControllerProvider).updateSegmentTime(item.session.id, start, end);
+                      Navigator.pop(ctx);
+                    }
+                )
+              ],
+            ),
           ),
         ),
       ),

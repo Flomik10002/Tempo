@@ -16,34 +16,45 @@ class TempoApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
+    const primaryColor = Color(0xFF007AFF);
 
     return AdaptiveApp(
       title: 'Tempo',
       themeMode: themeMode,
-      // Настройка Material темы (для Adaptive виджетов)
+
+      // Material (Android)
       materialLightTheme: ThemeData.light().copyWith(
-        primaryColor: const Color(0xFF007AFF),
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF007AFF)),
+        primaryColor: primaryColor,
+        colorScheme: ColorScheme.fromSeed(seedColor: primaryColor),
       ),
       materialDarkTheme: ThemeData.dark().copyWith(
-        primaryColor: const Color(0xFF007AFF),
+        primaryColor: primaryColor,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF007AFF),
+          seedColor: primaryColor,
           brightness: Brightness.dark,
         ),
       ),
-      // Настройка Cupertino темы
+
+      // Cupertino (iOS)
       cupertinoLightTheme: const CupertinoThemeData(
         brightness: Brightness.light,
-        primaryColor: Color(0xFF007AFF),
-        scaffoldBackgroundColor: Color(0xFFF2F2F7),
+        primaryColor: primaryColor,
+        scaffoldBackgroundColor: Color(0xFFF2F2F7), // Светло-серый фон iOS
+        barBackgroundColor: Color(0xF0F9F9F9),
+        textTheme: CupertinoTextThemeData(
+          primaryColor: primaryColor,
+        ),
       ),
       cupertinoDarkTheme: const CupertinoThemeData(
         brightness: Brightness.dark,
-        primaryColor: Color(0xFF007AFF),
-        scaffoldBackgroundColor: Color(0xFF000000),
-        barBackgroundColor: Color(0xFF1C1C1E),
+        primaryColor: primaryColor,
+        scaffoldBackgroundColor: Color(0xFF000000), // Черный фон iOS
+        barBackgroundColor: Color(0xF01D1D1D),
+        textTheme: CupertinoTextThemeData(
+          primaryColor: primaryColor,
+        ),
       ),
+
       localizationsDelegates: const [
         DefaultMaterialLocalizations.delegate,
         DefaultCupertinoLocalizations.delegate,
