@@ -27,6 +27,7 @@ dependencies:
   sqlite3_flutter_libs: ^0.5.18  # Критично для iOS!
   path_provider: ^2.1.2
   path: ^1.8.3
+  shared_preferences: ^2.5.4
 
 dev_dependencies:
   flutter_test:

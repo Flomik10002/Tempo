@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Добавлен импорт
 import 'package:tempo/database.dart';
 
 // DB Access
@@ -11,8 +12,45 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   return db;
 });
 
+// --- STORAGE ---
+// Провайдер для доступа к SharedPreferences (инициализируется в main.dart)
+final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
+  throw UnimplementedError();
+});
+
 // --- THEME ---
-final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
+class ThemeNotifier extends StateNotifier<ThemeMode> {
+  final SharedPreferences prefs;
+
+  ThemeNotifier(this.prefs) : super(ThemeMode.system) {
+    _loadTheme();
+  }
+
+  void _loadTheme() {
+    final themeStr = prefs.getString('theme_mode');
+    if (themeStr == 'dark') {
+      state = ThemeMode.dark;
+    } else if (themeStr == 'light') {
+      state = ThemeMode.light;
+    } else {
+      state = ThemeMode.system;
+    }
+  }
+
+  Future<void> setTheme(ThemeMode mode) async {
+    state = mode;
+    String modeStr = 'system';
+    if (mode == ThemeMode.dark) modeStr = 'dark';
+    if (mode == ThemeMode.light) modeStr = 'light';
+    await prefs.setString('theme_mode', modeStr);
+  }
+}
+
+// Заменяем старый StateProvider на StateNotifierProvider
+final themeModeProvider = StateNotifierProvider<ThemeNotifier, ThemeMode>((ref) {
+  final prefs = ref.watch(sharedPreferencesProvider);
+  return ThemeNotifier(prefs);
+});
 
 // --- ACTIVITIES ---
 final activitiesStreamProvider = StreamProvider.autoDispose<List<Activity>>((ref) {

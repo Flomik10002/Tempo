@@ -1,6 +1,6 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors, ThemeMode;
+import 'package:flutter/material.dart' show Colors, Theme, Brightness, ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:tempo/logic.dart';
@@ -11,8 +11,9 @@ class SettingsView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = ref.watch(themeModeProvider);
-    final isDark = theme == ThemeMode.dark;
+    // Определяем, включена ли темная тема РЕАЛЬНО (независимо от того, выбрано System или Dark)
+    final isActuallyDark = Theme.of(context).brightness == Brightness.dark;
+
     final labelColor = CupertinoColors.label.resolveFrom(context);
 
     return SafeArea(
@@ -33,10 +34,13 @@ class SettingsView extends ConsumerWidget {
                 children: [
                   Text('Dark Mode', style: TextStyle(fontSize: 17, color: labelColor)),
                   AdaptiveSwitch(
-                    value: isDark,
+                    value: isActuallyDark,
                     activeColor: CupertinoTheme.of(context).primaryColor,
                     onChanged: (val) {
-                      ref.read(themeModeProvider.notifier).state = val ? ThemeMode.dark : ThemeMode.light;
+                      // Сохраняем и применяем выбор
+                      ref.read(themeModeProvider.notifier).setTheme(
+                          val ? ThemeMode.dark : ThemeMode.light
+                      );
                     },
                   )
                 ],
