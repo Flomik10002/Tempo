@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart'; // Только для AdaptiveTimePicker
+import 'package:cupertino_native/cupertino_native.dart'; // Для иконок CNSymbol
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +19,7 @@ class CalendarView extends ConsumerWidget {
     final primaryColor = CupertinoTheme.of(context).primaryColor;
 
     return SafeArea(
+      bottom: false,
       child: Column(
         children: [
           // Header
@@ -24,21 +27,15 @@ class CalendarView extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Row(
               children: [
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  child: Text("Today", style: TextStyle(color: primaryColor)),
-                  onPressed: () => ref.read(selectedDateProvider.notifier).state = DateTime.now(),
-                ),
-                const Spacer(),
                 Text(
                     DateFormat.yMMMMd().format(selectedDate),
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: labelColor)
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: labelColor)
                 ),
                 const Spacer(),
                 CupertinoButton(
                   padding: EdgeInsets.zero,
-                  child: Icon(CupertinoIcons.add, color: primaryColor),
-                  onPressed: () => _addManualLog(context, ref, selectedDate),
+                  child: Text("Today", style: TextStyle(color: primaryColor, fontWeight: FontWeight.w600)),
+                  onPressed: () => ref.read(selectedDateProvider.notifier).state = DateTime.now(),
                 ),
               ],
             ),
@@ -83,7 +80,7 @@ class CalendarView extends ConsumerWidget {
           // Timeline
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: 100),
+              padding: const EdgeInsets.only(bottom: 20),
               child: SizedBox(
                 height: 24 * 60.0,
                 child: Stack(
@@ -105,7 +102,7 @@ class CalendarView extends ConsumerWidget {
                     // Tap Area
                     Positioned.fill(
                       child: GestureDetector(
-                        behavior: HitTestBehavior.translucent, // Важно для перехвата тапов
+                        behavior: HitTestBehavior.translucent,
                         onTapUp: (details) => _onTapEmpty(context, ref, details.localPosition.dy, selectedDate),
                         child: Container(color: Colors.transparent),
                       ),
@@ -115,12 +112,14 @@ class CalendarView extends ConsumerWidget {
                     sessionsAsync.when(
                       data: (items) => Stack(
                         children: items.map((item) {
-                          final top = _calculateTop(item.session.startTime);
-                          final height = _calculateHeight(item.session.startTime, item.session.endTime);
+                          final layout = _calculateLayout(item.session.startTime, item.session.endTime, selectedDate);
                           final color = Color(int.parse(item.activity.color));
 
                           return Positioned(
-                            top: top, left: 60, right: 10, height: height,
+                            top: layout.top,
+                            left: 60,
+                            right: 10,
+                            height: layout.height,
                             child: GestureDetector(
                               onTap: () => _showEditMenu(context, ref, item),
                               child: Container(
@@ -149,26 +148,38 @@ class CalendarView extends ConsumerWidget {
     );
   }
 
-  double _calculateTop(DateTime start) => (start.hour * 60.0) + start.minute;
-  double _calculateHeight(DateTime start, DateTime? end) {
-    final e = end ?? DateTime.now();
-    // Защита от отрицательной высоты, если endTime < startTime (ошибка в БД или логике)
-    if (e.isBefore(start)) return 20.0;
+  // Расчет позиции сегмента с учетом перехода через полночь
+  ({double top, double height}) _calculateLayout(DateTime start, DateTime? end, DateTime selectedDate) {
+    final effectiveEnd = end ?? DateTime.now();
 
-    final diff = e.difference(start).inMinutes;
-    return diff.toDouble().clamp(20.0, 1440.0);
+    // Границы текущего дня
+    final dayStart = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+    final dayEnd = dayStart.add(const Duration(days: 1));
+
+    // Если событие вообще не попадает в этот день (например, началось и закончилось вчера, но запрос в БД вернул его по ошибке)
+    if (effectiveEnd.isBefore(dayStart) || start.isAfter(dayEnd)) {
+      return (top: -1000, height: 0); // Скрываем
+    }
+
+    // Обрезаем начало и конец по границам дня
+    final visibleStart = start.isBefore(dayStart) ? dayStart : start;
+    final visibleEnd = effectiveEnd.isAfter(dayEnd) ? dayEnd : effectiveEnd;
+
+    final startMinutes = visibleStart.difference(dayStart).inMinutes;
+    final durationMinutes = visibleEnd.difference(visibleStart).inMinutes;
+
+    double top = startMinutes.toDouble();
+    double height = durationMinutes.toDouble();
+
+    if (height < 20) height = 20;
+
+    return (top: top, height: height);
   }
 
   void _onTapEmpty(BuildContext context, WidgetRef ref, double dy, DateTime date) {
     final hour = (dy / 60).floor();
     if(hour >= 24) return;
     final tapTime = DateTime(date.year, date.month, date.day, hour);
-    _showAddDialog(context, ref, tapTime);
-  }
-
-  void _addManualLog(BuildContext context, WidgetRef ref, DateTime date) {
-    final now = DateTime.now();
-    final tapTime = DateTime(date.year, date.month, date.day, now.hour, now.minute);
     _showAddDialog(context, ref, tapTime);
   }
 
@@ -194,19 +205,36 @@ class CalendarView extends ConsumerWidget {
     });
   }
 
+  // Меню действий с сегментом (Нативное меню через модалку)
   void _showEditMenu(BuildContext context, WidgetRef ref, SessionWithActivity item) {
     showCupertinoModalPopup(
         context: context,
         builder: (ctx) => CupertinoActionSheet(
+          // Эмуляция нативного меню с иконками SF Symbols
           actions: [
             CupertinoActionSheetAction(
               onPressed: () { Navigator.pop(ctx); _editSegment(context, ref, item); },
-              child: const Text('Edit Time'),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Edit Time'),
+                  const Gap(8),
+                  // Используем CNIcon для нативного SF Symbol
+                  const CNIcon(symbol: CNSymbol('clock', size: 18), color: CupertinoColors.activeBlue),
+                ],
+              ),
             ),
             CupertinoActionSheetAction(
               isDestructiveAction: true,
               onPressed: () { Navigator.pop(ctx); ref.read(appControllerProvider).deleteSession(item.session.id); },
-              child: const Text('Delete'),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Delete'),
+                  const Gap(8),
+                  const CNIcon(symbol: CNSymbol('trash', size: 18), color: CupertinoColors.destructiveRed),
+                ],
+              ),
             ),
           ],
           cancelButton: CupertinoActionSheetAction(
@@ -227,40 +255,16 @@ class CalendarView extends ConsumerWidget {
         builder: (context, setState) => Material(
           color: Colors.transparent,
           child: Container(
-            height: 350,
+            height: 400,
             color: CupertinoTheme.of(context).scaffoldBackgroundColor,
             padding: const EdgeInsets.all(20),
             child: Column(
               children: [
-                Text("Edit Time", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoColors.label.resolveFrom(context))),
+                Text("Edit Session", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoColors.label.resolveFrom(context))),
                 const Gap(20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Start'),
-                    CupertinoButton(
-                        child: Text(DateFormat('HH:mm').format(start)),
-                        onPressed: () async {
-                          final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(start));
-                          if(t!=null) setState(() => start = DateTime(start.year, start.month, start.day, t.hour, t.minute));
-                        }
-                    ),
-                  ],
-                ),
+                _buildDateTimeRow(context, 'Start', start, (d) => setState(() => start = d)),
                 const Gap(10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('End'),
-                    CupertinoButton(
-                        child: Text(DateFormat('HH:mm').format(end)),
-                        onPressed: () async {
-                          final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(end));
-                          if(t!=null) setState(() => end = DateTime(end.year, end.month, end.day, t.hour, t.minute));
-                        }
-                    ),
-                  ],
-                ),
+                _buildDateTimeRow(context, 'End', end, (d) => setState(() => end = d)),
                 const Spacer(),
                 CupertinoButton.filled(
                     child: const Text('Save Changes'),
@@ -274,6 +278,46 @@ class CalendarView extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildDateTimeRow(BuildContext context, String label, DateTime dt, Function(DateTime) onChanged) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 17)),
+        Row(
+          children: [
+            CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(DateFormat('MMM d').format(dt), style: const TextStyle(fontSize: 15)),
+                onPressed: () async {
+                  final date = await AdaptiveDatePicker.show(context: context, initialDate: dt);
+                  if (date != null) {
+                    onChanged(DateTime(date.year, date.month, date.day, dt.hour, dt.minute));
+                  }
+                }
+            ),
+            CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                        color: CupertinoColors.tertiarySystemFill.resolveFrom(context),
+                        borderRadius: BorderRadius.circular(6)
+                    ),
+                    child: Text(DateFormat('HH:mm').format(dt), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))
+                ),
+                onPressed: () async {
+                  final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(dt));
+                  if (t != null) {
+                    onChanged(DateTime(dt.year, dt.month, dt.day, t.hour, t.minute));
+                  }
+                }
+            ),
+          ],
+        )
+      ],
     );
   }
 

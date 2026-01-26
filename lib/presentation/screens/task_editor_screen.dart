@@ -1,4 +1,4 @@
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart'; // Только для пикеров
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,19 +43,18 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
     final isEditing = widget.task != null;
     final labelColor = CupertinoColors.label.resolveFrom(context);
     final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+    final bgColor = CupertinoColors.secondarySystemBackground.resolveFrom(context);
 
-    return AdaptiveScaffold(
-      appBar: AdaptiveAppBar(
-        title: isEditing ? 'Edit Task' : 'New Task',
-        // Кнопка "Сохранить" в навбаре
-        actions: [
-          AdaptiveAppBarAction(
-            title: 'Save',
-            onPressed: _save,
-          ),
-        ],
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: Text(isEditing ? 'Edit Task' : 'New Task'),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _save,
+          child: const Text('Save'),
+        ),
       ),
-      body: SafeArea(
+      child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -63,41 +62,52 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
             children: [
               Text('DETAILS', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: secondaryColor)),
               const Gap(8),
-              // Используем нативные поля ввода
-              AdaptiveTextField(
+              CupertinoTextField(
                 controller: _titleCtrl,
                 placeholder: 'Task Title',
                 textCapitalization: TextCapitalization.sentences,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(10)),
               ),
               const Gap(12),
-              AdaptiveTextField(
+              CupertinoTextField(
                 controller: _descCtrl,
                 placeholder: 'Description (optional)',
                 maxLines: 4,
                 minLines: 4,
                 textCapitalization: TextCapitalization.sentences,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(10)),
               ),
 
               const Gap(32),
               Text('SETTINGS', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: secondaryColor)),
               const Gap(8),
 
-              // Блок с датой
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                  color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
+                  color: bgColor,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text('Due Date', style: TextStyle(fontSize: 17, color: labelColor)),
-                    // Нативная кнопка выбора даты
-                    AdaptiveButton(
-                      style: AdaptiveButtonStyle.tinted,
-                      size: AdaptiveButtonSize.small,
-                      label: _pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(_pickedDate!),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minSize: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                            color: CupertinoColors.tertiarySystemFill.resolveFrom(context),
+                            borderRadius: BorderRadius.circular(6)
+                        ),
+                        child: Text(
+                            _pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(_pickedDate!),
+                            style: TextStyle(color: CupertinoTheme.of(context).primaryColor, fontSize: 15)
+                        ),
+                      ),
                       onPressed: () async {
                         final date = await AdaptiveDatePicker.show(
                             context: context,
@@ -112,22 +122,19 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
 
               const Gap(12),
 
-              // Блок с повторением
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
+                  color: bgColor,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text('Repeat Daily', style: TextStyle(fontSize: 17, color: labelColor)),
-                    // Здесь AdaptiveSwitch абсолютно безопасен и уместен
-                    AdaptiveSwitch(
+                    CupertinoSwitch(
                       value: _isRepeating,
                       onChanged: (v) => setState(() => _isRepeating = v),
-                      activeColor: CupertinoTheme.of(context).primaryColor,
                     ),
                   ],
                 ),
@@ -137,14 +144,13 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
                 const Gap(40),
                 SizedBox(
                   width: double.infinity,
-                  child: AdaptiveButton(
-                    label: 'Delete Task',
-                    style: AdaptiveButtonStyle.filled,
+                  child: CupertinoButton(
                     color: CupertinoColors.destructiveRed,
                     onPressed: () {
                       ref.read(appControllerProvider).deleteTask(widget.task!);
                       Navigator.pop(context);
                     },
+                    child: const Text('Delete Task'),
                   ),
                 ),
               ],

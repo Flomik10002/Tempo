@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Добавлен импорт
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tempo/database.dart';
 
 // DB Access
@@ -13,7 +13,6 @@ final databaseProvider = Provider<AppDatabase>((ref) {
 });
 
 // --- STORAGE ---
-// Провайдер для доступа к SharedPreferences (инициализируется в main.dart)
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
   throw UnimplementedError();
 });
@@ -46,7 +45,6 @@ class ThemeNotifier extends StateNotifier<ThemeMode> {
   }
 }
 
-// Заменяем старый StateProvider на StateNotifierProvider
 final themeModeProvider = StateNotifierProvider<ThemeNotifier, ThemeMode>((ref) {
   final prefs = ref.watch(sharedPreferencesProvider);
   return ThemeNotifier(prefs);
@@ -88,16 +86,20 @@ final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
 final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWithActivity>, DateTime>((ref, date) {
   final db = ref.watch(databaseProvider);
+
+  // Начало текущего дня (00:00:00)
   final startOfDay = DateTime(date.year, date.month, date.day);
+  // Конец текущего дня (начало следующего 00:00:00)
   final endOfDay = startOfDay.add(const Duration(days: 1));
 
   final query = db.select(db.sessions).join([
     leftOuterJoin(db.activities, db.activities.id.equalsExp(db.sessions.activityId))
   ])
     ..where(
-        db.sessions.startTime.isBiggerOrEqualValue(startOfDay) &
+      // Логика пересечения интервалов:
+      // Сессия должна начаться ДО конца дня И закончиться (или еще идти) ПОСЛЕ начала дня.
         db.sessions.startTime.isSmallerThanValue(endOfDay) &
-        db.sessions.endTime.isNotNull()
+        (db.sessions.endTime.isNull() | db.sessions.endTime.isBiggerThanValue(startOfDay))
     );
 
   return query.watch().map((rows) {
