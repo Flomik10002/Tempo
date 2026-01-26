@@ -150,7 +150,7 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
                       ref.read(appControllerProvider).deleteTask(widget.task!);
                       Navigator.pop(context);
                     },
-                    child: const Text('Delete Task'),
+                    child: const Text('Delete Task', style: TextStyle(color: CupertinoColors.white, fontWeight: FontWeight.w600)),
                   ),
                 ),
               ],

@@ -44,15 +44,35 @@ class _TasksViewState extends ConsumerState<TasksView> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: SizedBox(
-              width: double.infinity,
-              // Сегментед контрол тут ок, он не в списке
-              child: AdaptiveSegmentedControl(
-                labels: const ['Active', 'Scheduled', 'Repeat', 'Done'],
-                selectedIndex: _filter.index,
-                onValueChanged: (index) {
-                  setState(() => _filter = TaskFilter.values[index]);
-                },
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                child: CupertinoSlidingSegmentedControl<int>(
+                  groupValue: _filter.index,
+                  backgroundColor: Colors.transparent, // Фон берется от контейнера
+                  thumbColor: CupertinoTheme.of(context).primaryColor,
+                  children: {
+                    for (var i = 0; i < TaskFilter.values.length; i++)
+                      i: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          ['Active', 'Scheduled', 'Repeat', 'Done'][i],
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: _filter.index == i ? Colors.white : CupertinoColors.label.resolveFrom(context)
+                          ),
+                        ),
+                      ),
+                  },
+                  onValueChanged: (index) {
+                    if (index != null) setState(() => _filter = TaskFilter.values[index]);
+                  },
+                ),
               ),
             ),
           ),
