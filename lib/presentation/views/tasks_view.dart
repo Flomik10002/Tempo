@@ -1,12 +1,12 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, Icons, Material;
+import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, Icons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:intl/intl.dart';
-import 'package:tempo/database.dart';
 import 'package:tempo/logic.dart';
 import 'package:tempo/presentation/widgets/app_container.dart';
+import 'package:tempo/presentation/screens/task_editor_screen.dart'; // Импорт нового экрана
 
 class TasksView extends ConsumerStatefulWidget {
   const TasksView({super.key});
@@ -31,11 +31,13 @@ class _TasksViewState extends ConsumerState<TasksView> {
               children: [
                 Text('Tasks', style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: labelColor)),
                 const Spacer(),
-                // ИСПРАВЛЕНИЕ: Кнопка +, отключаем нативность
-                AdaptiveButton.icon(
-                    icon: CupertinoIcons.add,
-                    onPressed: () => _showTaskDialog(context, ref),
-                    style: AdaptiveButtonStyle.plain
+                // Кнопка добавления ведет на новый экран
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: () => Navigator.of(context, rootNavigator: true).push(
+                    CupertinoPageRoute(builder: (_) => const TaskEditorScreen()),
+                  ),
+                  child: const Icon(CupertinoIcons.add_circled_solid, size: 32),
                 ),
               ],
             ),
@@ -44,6 +46,7 @@ class _TasksViewState extends ConsumerState<TasksView> {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: SizedBox(
               width: double.infinity,
+              // Сегментед контрол тут ок, он не в списке
               child: AdaptiveSegmentedControl(
                 labels: const ['Active', 'Scheduled', 'Repeat', 'Done'],
                 selectedIndex: _filter.index,
@@ -75,10 +78,14 @@ class _TasksViewState extends ConsumerState<TasksView> {
                         child: const Icon(CupertinoIcons.trash, color: Colors.white),
                       ),
                       child: AppContainer(
-                        onTap: () => _showTaskDialog(context, ref, task: task),
+                        // Нажатие открывает экран редактирования
+                        onTap: () => Navigator.of(context, rootNavigator: true).push(
+                          CupertinoPageRoute(builder: (_) => TaskEditorScreen(task: task)),
+                        ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Обычная кнопка вместо нативного чекбокса
                             CupertinoButton(
                               padding: EdgeInsets.zero,
                               minSize: 0,
@@ -131,87 +138,6 @@ class _TasksViewState extends ConsumerState<TasksView> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showTaskDialog(BuildContext context, WidgetRef ref, {Task? task}) {
-    final titleCtrl = TextEditingController(text: task?.title ?? '');
-    final descCtrl = TextEditingController(text: task?.description ?? '');
-    DateTime? pickedDate = task?.dueDate;
-    bool isRepeating = task?.isRepeating ?? false;
-
-    showCupertinoModalPopup(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => Material(
-          color: Colors.transparent,
-          child: CupertinoActionSheet(
-            title: Text(task == null ? 'New Task' : 'Edit Task'),
-            message: Column(
-              children: [
-                const Gap(16),
-                CupertinoTextField(controller: titleCtrl, placeholder: 'Title'),
-                const Gap(12),
-                CupertinoTextField(controller: descCtrl, placeholder: 'Description', maxLines: 3),
-                const Gap(16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Due Date'),
-                    // ИСПРАВЛЕНИЕ: Используем CupertinoButton вместо AdaptiveButton
-                    // Нативные кнопки (UiKitView) внутри ActionSheet крашат приложение
-                    CupertinoButton(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      color: CupertinoColors.systemGrey5.resolveFrom(context),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Text(
-                        pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(pickedDate!),
-                        style: TextStyle(color: CupertinoTheme.of(context).primaryColor, fontSize: 14),
-                      ),
-                      onPressed: () async {
-                        final date = await AdaptiveDatePicker.show(context: context, initialDate: DateTime.now());
-                        if(date != null) setState(() => pickedDate = date);
-                      },
-                    )
-                  ],
-                ),
-                const Gap(12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Repeat Daily'),
-                    // ИСПРАВЛЕНИЕ: Используем CupertinoSwitch вместо AdaptiveSwitch
-                    // Нативные свитчи внутри модалки крашат
-                    CupertinoSwitch(
-                        value: isRepeating,
-                        onChanged: (v) => setState(() => isRepeating = v)
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            actions: [
-              CupertinoActionSheetAction(
-                onPressed: () {
-                  if (titleCtrl.text.isNotEmpty) {
-                    if (task == null) {
-                      ref.read(appControllerProvider).addTask(titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
-                    } else {
-                      ref.read(appControllerProvider).updateTask(task, titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
-                    }
-                    Navigator.pop(ctx);
-                  }
-                },
-                child: const Text('Save'),
-              )
-            ],
-            cancelButton: CupertinoActionSheetAction(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-          ),
-        ),
       ),
     );
   }
