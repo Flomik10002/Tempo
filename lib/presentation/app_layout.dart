@@ -1,5 +1,6 @@
-import 'package:cupertino_native/cupertino_native.dart';
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:tempo/presentation/views/calendar_view.dart';
 import 'package:tempo/presentation/views/home_view.dart';
 import 'package:tempo/presentation/views/settings_view.dart';
@@ -14,38 +15,30 @@ class AppLayout extends StatefulWidget {
 
 class _AppLayoutState extends State<AppLayout> {
   int _index = 0;
+
   final _pages = const [
     HomeView(),
     TasksView(),
     CalendarView(),
-    Center(child: Text("Body Map (Coming Soon)")), // Placeholder
+    Center(child: Text("Body Map (Coming Soon)")),
     SettingsView()
   ];
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: CupertinoPageScaffold(
-            child: _pages[_index],
-          ),
-        ),
-        Positioned(
-          left: 0, right: 0, bottom: 0,
-          child: CNTabBar(
-            currentIndex: _index,
-            onTap: (i) => setState(() => _index = i),
-            items: const [
-              CNTabBarItem(label: 'Timer', icon: CNSymbol('timer')),
-              CNTabBarItem(label: 'Tasks', icon: CNSymbol('checklist')),
-              CNTabBarItem(label: 'Calendar', icon: CNSymbol('calendar')),
-              CNTabBarItem(label: 'Body', icon: CNSymbol('figure.arms.open')),
-              CNTabBarItem(label: 'Settings', icon: CNSymbol('gear')),
-            ],
-          ),
-        ),
-      ],
+    return AdaptiveScaffold(
+      body: _pages[_index],
+      bottomNavigationBar: AdaptiveBottomNavigationBar(
+        selectedIndex: _index,
+        onTap: (i) => setState(() => _index = i),
+        items: const [
+          AdaptiveNavigationDestination(label: 'Timer', icon: CupertinoIcons.timer), // Используем IconData для надежности
+          AdaptiveNavigationDestination(label: 'Tasks', icon: CupertinoIcons.check_mark_circled),
+          AdaptiveNavigationDestination(label: 'Calendar', icon: CupertinoIcons.calendar),
+          AdaptiveNavigationDestination(label: 'Body', icon: CupertinoIcons.person),
+          AdaptiveNavigationDestination(label: 'Settings', icon: CupertinoIcons.settings),
+        ],
+      ),
     );
   }
 }

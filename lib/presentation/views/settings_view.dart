@@ -1,7 +1,5 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:cupertino_native/cupertino_native.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show ThemeMode;
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:tempo/logic.dart';
@@ -21,14 +19,17 @@ class SettingsView extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Settings', style: CupertinoTheme.of(context).textTheme.navLargeTitleTextStyle),
+            const Text(
+                'Settings',
+                style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold)
+            ),
             const Gap(30),
             NativeGlassContainer(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Dark Mode', style: TextStyle(fontSize: 17, color: CupertinoColors.label.resolveFrom(context))),
+                  const Text('Dark Mode', style: TextStyle(fontSize: 17)),
                   AdaptiveSwitch(
                     value: isDark,
                     onChanged: (val) {
@@ -39,7 +40,7 @@ class SettingsView extends ConsumerWidget {
               ),
             ),
             const Gap(20),
-            Center(child: Text("Tempo v1.0", style: TextStyle(color: CupertinoColors.secondaryLabel.resolveFrom(context))))
+            const Center(child: Text("Tempo v1.0", style: TextStyle(color: Colors.grey)))
           ],
         ),
       ),

@@ -1,5 +1,6 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show DefaultMaterialLocalizations, DefaultWidgetsLocalizations, ThemeMode;
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tempo/logic.dart';
 import 'package:tempo/presentation/app_layout.dart';
@@ -16,14 +17,32 @@ class TempoApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
 
-    return CupertinoApp(
+    return AdaptiveApp(
       title: 'Tempo',
-      debugShowCheckedModeBanner: false,
-      theme: CupertinoThemeData(
-        brightness: themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
+      themeMode: themeMode,
+      // Настройка Material темы (для Adaptive виджетов)
+      materialLightTheme: ThemeData.light().copyWith(
         primaryColor: const Color(0xFF007AFF),
-        scaffoldBackgroundColor: themeMode == ThemeMode.dark ? const Color(0xFF000000) : const Color(0xFFF2F2F7),
-        barBackgroundColor: themeMode == ThemeMode.dark ? const Color(0xFF1C1C1E) : const Color(0xF0F9F9F9),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF007AFF)),
+      ),
+      materialDarkTheme: ThemeData.dark().copyWith(
+        primaryColor: const Color(0xFF007AFF),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF007AFF),
+          brightness: Brightness.dark,
+        ),
+      ),
+      // Настройка Cupertino темы
+      cupertinoLightTheme: const CupertinoThemeData(
+        brightness: Brightness.light,
+        primaryColor: Color(0xFF007AFF),
+        scaffoldBackgroundColor: Color(0xFFF2F2F7),
+      ),
+      cupertinoDarkTheme: const CupertinoThemeData(
+        brightness: Brightness.dark,
+        primaryColor: Color(0xFF007AFF),
+        scaffoldBackgroundColor: Color(0xFF000000),
+        barBackgroundColor: Color(0xFF1C1C1E),
       ),
       localizationsDelegates: const [
         DefaultMaterialLocalizations.delegate,
