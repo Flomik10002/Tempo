@@ -12,7 +12,7 @@ final databaseProvider = Provider<AppDatabase>((ref) {
 });
 
 // --- THEME ---
-final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);
+final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
 
 // --- ACTIVITIES ---
 final activitiesStreamProvider = StreamProvider.autoDispose<List<Activity>>((ref) {
@@ -111,6 +111,15 @@ class AppController {
       if (active.activityId != activityId) await _start(activityId);
     } else {
       await _start(activityId);
+    }
+  }
+
+  Future<void> stopSession() async {
+    final active = await (db.select(db.sessions)..where((s) => s.endTime.isNull())).getSingleOrNull();
+    if (active != null) {
+      await (db.update(db.sessions)..where((s) => s.id.equals(active.id))).write(
+        SessionsCompanion(endTime: Value(DateTime.now())),
+      );
     }
   }
 
