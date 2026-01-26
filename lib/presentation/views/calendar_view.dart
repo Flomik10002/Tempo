@@ -24,7 +24,6 @@ class CalendarView extends ConsumerWidget {
             child: Row(
               children: [
                 AdaptiveButton(
-                  
                   style: AdaptiveButtonStyle.plain,
                   label: "Today",
                   onPressed: () => ref.read(selectedDateProvider.notifier).state = DateTime.now(),
@@ -36,7 +35,6 @@ class CalendarView extends ConsumerWidget {
                 ),
                 const Spacer(),
                 AdaptiveButton.icon(
-                  
                   icon: CupertinoIcons.add,
                   style: AdaptiveButtonStyle.plain,
                   onPressed: () => _addManualLog(context, ref, selectedDate),
@@ -121,7 +119,8 @@ class CalendarView extends ConsumerWidget {
 
                           return Positioned(
                             top: top, left: 60, right: 10, height: height,
-                            // БЕЗОПАСНАЯ РЕАЛИЗАЦИЯ: Обычный GestureDetector вместо тяжелого нативного виджета
+                            // ИСПРАВЛЕНИЕ: Заменили AdaptivePopupMenuButton на GestureDetector
+                            // Нативные виджеты нельзя вставлять в сложные стеки с позиционированием
                             child: GestureDetector(
                               onTap: () {
                                 showCupertinoModalPopup(
@@ -129,12 +128,18 @@ class CalendarView extends ConsumerWidget {
                                     builder: (ctx) => CupertinoActionSheet(
                                       actions: [
                                         CupertinoActionSheetAction(
-                                          onPressed: () { Navigator.pop(ctx); _editSegment(context, ref, item); },
+                                          onPressed: () {
+                                            Navigator.pop(ctx);
+                                            _editSegment(context, ref, item);
+                                          },
                                           child: const Text('Edit'),
                                         ),
                                         CupertinoActionSheetAction(
                                           isDestructiveAction: true,
-                                          onPressed: () { Navigator.pop(ctx); ref.read(appControllerProvider).deleteSession(item.session.id); },
+                                          onPressed: () {
+                                            Navigator.pop(ctx);
+                                            ref.read(appControllerProvider).deleteSession(item.session.id);
+                                          },
                                           child: const Text('Delete'),
                                         ),
                                       ],
@@ -152,7 +157,11 @@ class CalendarView extends ConsumerWidget {
                                   border: Border.all(color: color),
                                 ),
                                 padding: const EdgeInsets.all(4),
-                                child: Text(item.activity.name, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+                                child: Text(
+                                  item.activity.name,
+                                  style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ),
                           );
@@ -234,10 +243,13 @@ class CalendarView extends ConsumerWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Start'),
-                    AdaptiveButton( label: DateFormat('HH:mm').format(start), onPressed: () async {
-                      final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(start));
-                      if(t!=null) setState(() => start = DateTime(start.year, start.month, start.day, t.hour, t.minute));
-                    }),
+                    AdaptiveButton(
+                            label: DateFormat('HH:mm').format(start),
+                        onPressed: () async {
+                          final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(start));
+                          if(t!=null) setState(() => start = DateTime(start.year, start.month, start.day, t.hour, t.minute));
+                        }
+                    ),
                   ],
                 ),
                 const Gap(10),
@@ -245,10 +257,13 @@ class CalendarView extends ConsumerWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('End'),
-                    AdaptiveButton( label: DateFormat('HH:mm').format(end), onPressed: () async {
-                      final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(end));
-                      if(t!=null) setState(() => end = DateTime(end.year, end.month, end.day, t.hour, t.minute));
-                    }),
+                    AdaptiveButton(
+                            label: DateFormat('HH:mm').format(end),
+                        onPressed: () async {
+                          final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(end));
+                          if(t!=null) setState(() => end = DateTime(end.year, end.month, end.day, t.hour, t.minute));
+                        }
+                    ),
                   ],
                 ),
                 const Spacer(),

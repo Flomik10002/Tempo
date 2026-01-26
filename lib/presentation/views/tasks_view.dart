@@ -31,9 +31,8 @@ class _TasksViewState extends ConsumerState<TasksView> {
               children: [
                 Text('Tasks', style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: labelColor)),
                 const Spacer(),
-                // Обычная кнопка, не нативная
+                // ИСПРАВЛЕНИЕ: Кнопка +, отключаем нативность
                 AdaptiveButton.icon(
-                    
                     icon: CupertinoIcons.add,
                     onPressed: () => _showTaskDialog(context, ref),
                     style: AdaptiveButtonStyle.plain
@@ -75,12 +74,11 @@ class _TasksViewState extends ConsumerState<TasksView> {
                         padding: const EdgeInsets.only(right: 20),
                         child: const Icon(CupertinoIcons.trash, color: Colors.white),
                       ),
-                      child: AppContainer( // Легкий контейнер
+                      child: AppContainer(
                         onTap: () => _showTaskDialog(context, ref, task: task),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // ЛЕГКИЙ ЧЕКБОКС (Кнопка с иконкой) вместо тяжелого AdaptiveCheckbox
                             CupertinoButton(
                               padding: EdgeInsets.zero,
                               minSize: 0,
@@ -137,7 +135,6 @@ class _TasksViewState extends ConsumerState<TasksView> {
     );
   }
 
-  // _showTaskDialog оставляем как был, он использует модалку, там можно и Adaptive виджеты
   void _showTaskDialog(BuildContext context, WidgetRef ref, {Task? task}) {
     final titleCtrl = TextEditingController(text: task?.title ?? '');
     final descCtrl = TextEditingController(text: task?.description ?? '');
@@ -162,10 +159,16 @@ class _TasksViewState extends ConsumerState<TasksView> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Due Date'),
-                    AdaptiveButton(
-                      
-                      style: AdaptiveButtonStyle.tinted,
-                      label: pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(pickedDate!),
+                    // ИСПРАВЛЕНИЕ: Используем CupertinoButton вместо AdaptiveButton
+                    // Нативные кнопки (UiKitView) внутри ActionSheet крашат приложение
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      color: CupertinoColors.systemGrey5.resolveFrom(context),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Text(
+                        pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(pickedDate!),
+                        style: TextStyle(color: CupertinoTheme.of(context).primaryColor, fontSize: 14),
+                      ),
                       onPressed: () async {
                         final date = await AdaptiveDatePicker.show(context: context, initialDate: DateTime.now());
                         if(date != null) setState(() => pickedDate = date);
@@ -178,8 +181,12 @@ class _TasksViewState extends ConsumerState<TasksView> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Repeat Daily'),
-                    // Тут свитч безопасен, это модалка
-                    AdaptiveSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
+                    // ИСПРАВЛЕНИЕ: Используем CupertinoSwitch вместо AdaptiveSwitch
+                    // Нативные свитчи внутри модалки крашат
+                    CupertinoSwitch(
+                        value: isRepeating,
+                        onChanged: (v) => setState(() => isRepeating = v)
+                    ),
                   ],
                 ),
               ],

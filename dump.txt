@@ -279,34 +279,45 @@ class TempoApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
+    const primaryColor = Color(0xFF007AFF);
 
     return AdaptiveApp(
       title: 'Tempo',
       themeMode: themeMode,
-      // Настройка Material темы (для Adaptive виджетов)
+
+      // Material (Android)
       materialLightTheme: ThemeData.light().copyWith(
-        primaryColor: const Color(0xFF007AFF),
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF007AFF)),
+        primaryColor: primaryColor,
+        colorScheme: ColorScheme.fromSeed(seedColor: primaryColor),
       ),
       materialDarkTheme: ThemeData.dark().copyWith(
-        primaryColor: const Color(0xFF007AFF),
+        primaryColor: primaryColor,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF007AFF),
+          seedColor: primaryColor,
           brightness: Brightness.dark,
         ),
       ),
-      // Настройка Cupertino темы
+
+      // Cupertino (iOS)
       cupertinoLightTheme: const CupertinoThemeData(
         brightness: Brightness.light,
-        primaryColor: Color(0xFF007AFF),
-        scaffoldBackgroundColor: Color(0xFFF2F2F7),
+        primaryColor: primaryColor,
+        scaffoldBackgroundColor: Color(0xFFF2F2F7), // Светло-серый фон iOS
+        barBackgroundColor: Color(0xF0F9F9F9),
+        textTheme: CupertinoTextThemeData(
+          primaryColor: primaryColor,
+        ),
       ),
       cupertinoDarkTheme: const CupertinoThemeData(
         brightness: Brightness.dark,
-        primaryColor: Color(0xFF007AFF),
-        scaffoldBackgroundColor: Color(0xFF000000),
-        barBackgroundColor: Color(0xFF1C1C1E),
+        primaryColor: primaryColor,
+        scaffoldBackgroundColor: Color(0xFF000000), // Черный фон iOS
+        barBackgroundColor: Color(0xF01D1D1D),
+        textTheme: CupertinoTextThemeData(
+          primaryColor: primaryColor,
+        ),
       ),
+
       localizationsDelegates: const [
         DefaultMaterialLocalizations.delegate,
         DefaultCupertinoLocalizations.delegate,
@@ -322,7 +333,6 @@ class TempoApp extends ConsumerWidget {
 /home/flomik/StudioProjects/Tempo/lib/presentation/app_layout.dart app_layout.dart
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
 import 'package:tempo/presentation/views/calendar_view.dart';
 import 'package:tempo/presentation/views/home_view.dart';
 import 'package:tempo/presentation/views/settings_view.dart';
@@ -353,12 +363,33 @@ class _AppLayoutState extends State<AppLayout> {
       bottomNavigationBar: AdaptiveBottomNavigationBar(
         selectedIndex: _index,
         onTap: (i) => setState(() => _index = i),
+        // Используем строки SF Symbols для iOS, библиотека сама разрулит Android
         items: const [
-          AdaptiveNavigationDestination(label: 'Timer', icon: CupertinoIcons.timer), // Используем IconData для надежности
-          AdaptiveNavigationDestination(label: 'Tasks', icon: CupertinoIcons.check_mark_circled),
-          AdaptiveNavigationDestination(label: 'Calendar', icon: CupertinoIcons.calendar),
-          AdaptiveNavigationDestination(label: 'Body', icon: CupertinoIcons.person),
-          AdaptiveNavigationDestination(label: 'Settings', icon: CupertinoIcons.settings),
+          AdaptiveNavigationDestination(
+              label: 'Timer',
+              icon: 'timer',
+              selectedIcon: 'timer'
+          ),
+          AdaptiveNavigationDestination(
+              label: 'Tasks',
+              icon: 'checkmark.circle',
+              selectedIcon: 'checkmark.circle.fill'
+          ),
+          AdaptiveNavigationDestination(
+              label: 'Calendar',
+              icon: 'calendar',
+              selectedIcon: 'calendar'
+          ),
+          AdaptiveNavigationDestination(
+              label: 'Body',
+              icon: 'person',
+              selectedIcon: 'person.fill'
+          ),
+          AdaptiveNavigationDestination(
+              label: 'Settings',
+              icon: 'gear',
+              selectedIcon: 'gear'
+          ),
         ],
       ),
     );
@@ -367,38 +398,49 @@ class _AppLayoutState extends State<AppLayout> {
 
 ================================================================================
 
-/home/flomik/StudioProjects/Tempo/lib/presentation/widgets/native_glass_container.dart native_glass_container.dart
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+/home/flomik/StudioProjects/Tempo/lib/presentation/widgets/app_container.dart app_container.dart
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
 
-class NativeGlassContainer extends StatelessWidget {
+class AppContainer extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
+  final VoidCallback? onTap;
 
-  const NativeGlassContainer({
+  const AppContainer({
     super.key,
     required this.child,
-    this.padding = EdgeInsets.zero,
+    this.padding = const EdgeInsets.all(16),
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return AdaptiveBlurView(
-      borderRadius: BorderRadius.circular(20),
-      blurStyle: BlurStyle.systemThickMaterial,
-      child: Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: Colors.grey.withOpacity(0.2),
-            width: 0.5,
-          ),
+    // Получаем цвета, которые сами меняются при смене темы
+    final backgroundColor = CupertinoColors.secondarySystemBackground.resolveFrom(context);
+    final borderColor = CupertinoColors.separator.resolveFrom(context);
+
+    final container = Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: backgroundColor, // В светлой теме - светло-серый, в темной - темно-серый
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: borderColor.withOpacity(0.5),
+          width: 0.5,
         ),
-        child: child,
       ),
+      child: child,
     );
+
+    if (onTap != null) {
+      return GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: container,
+      );
+    }
+
+    return container;
   }
 }
 
@@ -420,6 +462,7 @@ class CalendarView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedDate = ref.watch(selectedDateProvider);
     final sessionsAsync = ref.watch(sessionsForDateProvider(selectedDate));
+    final labelColor = CupertinoColors.label.resolveFrom(context);
 
     return SafeArea(
       child: Column(
@@ -430,6 +473,7 @@ class CalendarView extends ConsumerWidget {
             child: Row(
               children: [
                 AdaptiveButton(
+                  
                   style: AdaptiveButtonStyle.plain,
                   label: "Today",
                   onPressed: () => ref.read(selectedDateProvider.notifier).state = DateTime.now(),
@@ -437,11 +481,12 @@ class CalendarView extends ConsumerWidget {
                 const Spacer(),
                 Text(
                     DateFormat.yMMMMd().format(selectedDate),
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: labelColor)
                 ),
                 const Spacer(),
                 AdaptiveButton.icon(
-                  icon: Icons.add,
+                  
+                  icon: CupertinoIcons.add,
                   style: AdaptiveButtonStyle.plain,
                   onPressed: () => _addManualLog(context, ref, selectedDate),
                 ),
@@ -467,14 +512,14 @@ class CalendarView extends ConsumerWidget {
                     child: Container(
                       width: 50, margin: const EdgeInsets.symmetric(horizontal: 4),
                       decoration: BoxDecoration(
-                        color: isSelected ? Theme.of(context).primaryColor : Colors.transparent,
+                        color: isSelected ? CupertinoTheme.of(context).primaryColor : Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(DateFormat.E().format(date), style: TextStyle(fontSize: 12, color: isSelected ? Colors.white : Colors.grey)),
-                          Text(date.day.toString(), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : null)),
+                          Text(DateFormat.E().format(date), style: TextStyle(fontSize: 12, color: isSelected ? Colors.white : CupertinoColors.systemGrey)),
+                          Text(date.day.toString(), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : labelColor)),
                         ],
                       ),
                     ),
@@ -499,10 +544,10 @@ class CalendarView extends ConsumerWidget {
                         top: i * 60.0, left: 0, right: 0,
                         child: Container(
                           height: 60,
-                          decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey.withOpacity(0.2)))),
+                          decoration: BoxDecoration(border: Border(top: BorderSide(color: CupertinoColors.separator.resolveFrom(context).withOpacity(0.5)))),
                           child: Padding(
                             padding: const EdgeInsets.only(left: 10, top: 5),
-                            child: Text('${i.toString().padLeft(2, '0')}:00', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                            child: Text('${i.toString().padLeft(2, '0')}:00', style: const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey)),
                           ),
                         ),
                       ),
@@ -525,17 +570,29 @@ class CalendarView extends ConsumerWidget {
 
                           return Positioned(
                             top: top, left: 60, right: 10, height: height,
-                            child: AdaptivePopupMenuButton.widget(
-                              items: [
-                                const AdaptivePopupMenuItem(label: 'Edit', value: 'edit', icon: Icons.edit),
-                                const AdaptivePopupMenuItem(label: 'Delete', value: 'delete', icon: Icons.delete),
-                              ],
-                              onSelected: (idx, entry) {
-                                if (entry.value == 'delete') {
-                                  ref.read(appControllerProvider).deleteSession(item.session.id);
-                                } else if (entry.value == 'edit') {
-                                  _editSegment(context, ref, item);
-                                }
+                            // БЕЗОПАСНАЯ РЕАЛИЗАЦИЯ: Обычный GestureDetector вместо тяжелого нативного виджета
+                            child: GestureDetector(
+                              onTap: () {
+                                showCupertinoModalPopup(
+                                    context: context,
+                                    builder: (ctx) => CupertinoActionSheet(
+                                      actions: [
+                                        CupertinoActionSheetAction(
+                                          onPressed: () { Navigator.pop(ctx); _editSegment(context, ref, item); },
+                                          child: const Text('Edit'),
+                                        ),
+                                        CupertinoActionSheetAction(
+                                          isDestructiveAction: true,
+                                          onPressed: () { Navigator.pop(ctx); ref.read(appControllerProvider).deleteSession(item.session.id); },
+                                          child: const Text('Delete'),
+                                        ),
+                                      ],
+                                      cancelButton: CupertinoActionSheetAction(
+                                        onPressed: () => Navigator.pop(ctx),
+                                        child: const Text('Cancel'),
+                                      ),
+                                    )
+                                );
                               },
                               child: Container(
                                 decoration: BoxDecoration(
@@ -562,8 +619,6 @@ class CalendarView extends ConsumerWidget {
       ),
     );
   }
-
-  // Helpers... (addManualLog, editSegment, calculateTop, calculateHeight, same as before but use AdaptiveDatePicker)
 
   double _calculateTop(DateTime start) => (start.hour * 60.0) + start.minute;
   double _calculateHeight(DateTime start, DateTime? end) {
@@ -614,44 +669,47 @@ class CalendarView extends ConsumerWidget {
     showCupertinoModalPopup(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => Container(
-          height: 350,
-          color: Theme.of(context).scaffoldBackgroundColor,
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              Text("Edit Time", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const Gap(20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Start'),
-                  AdaptiveButton(label: DateFormat('HH:mm').format(start), onPressed: () async {
-                    final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(start));
-                    if(t!=null) setState(() => start = DateTime(start.year, start.month, start.day, t.hour, t.minute));
-                  }),
-                ],
-              ),
-              const Gap(10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('End'),
-                  AdaptiveButton(label: DateFormat('HH:mm').format(end), onPressed: () async {
-                    final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(end));
-                    if(t!=null) setState(() => end = DateTime(end.year, end.month, end.day, t.hour, t.minute));
-                  }),
-                ],
-              ),
-              const Spacer(),
-              AdaptiveButton(
-                  label: 'Save Changes',
-                  onPressed: () {
-                    ref.read(appControllerProvider).updateSegmentTime(item.session.id, start, end);
-                    Navigator.pop(ctx);
-                  }
-              )
-            ],
+        builder: (context, setState) => Material(
+          color: Colors.transparent,
+          child: Container(
+            height: 350,
+            color: CupertinoTheme.of(context).scaffoldBackgroundColor,
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Text("Edit Time", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoColors.label.resolveFrom(context))),
+                const Gap(20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Start'),
+                    AdaptiveButton( label: DateFormat('HH:mm').format(start), onPressed: () async {
+                      final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(start));
+                      if(t!=null) setState(() => start = DateTime(start.year, start.month, start.day, t.hour, t.minute));
+                    }),
+                  ],
+                ),
+                const Gap(10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('End'),
+                    AdaptiveButton( label: DateFormat('HH:mm').format(end), onPressed: () async {
+                      final t = await AdaptiveTimePicker.show(context: context, initialTime: TimeOfDay.fromDateTime(end));
+                      if(t!=null) setState(() => end = DateTime(end.year, end.month, end.day, t.hour, t.minute));
+                    }),
+                  ],
+                ),
+                const Spacer(),
+                AdaptiveButton(
+                    label: 'Save Changes',
+                    onPressed: () {
+                      ref.read(appControllerProvider).updateSegmentTime(item.session.id, start, end);
+                      Navigator.pop(ctx);
+                    }
+                )
+              ],
+            ),
           ),
         ),
       ),
@@ -667,16 +725,14 @@ class CalendarView extends ConsumerWidget {
 
 /home/flomik/StudioProjects/Tempo/lib/presentation/views/tasks_view.dart tasks_view.dart
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:cupertino_native/cupertino_native.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, Icons, Divider, Material;
+import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, Icons, Material;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:intl/intl.dart';
-import 'package:drift/drift.dart' show Value;
 import 'package:tempo/database.dart';
 import 'package:tempo/logic.dart';
-import 'package:tempo/presentation/widgets/native_glass_container.dart';
+import 'package:tempo/presentation/widgets/app_container.dart';
 
 class TasksView extends ConsumerStatefulWidget {
   const TasksView({super.key});
@@ -690,6 +746,7 @@ class _TasksViewState extends ConsumerState<TasksView> {
   @override
   Widget build(BuildContext context) {
     final tasksAsync = ref.watch(tasksProvider(_filter));
+    final labelColor = CupertinoColors.label.resolveFrom(context);
 
     return SafeArea(
       child: Column(
@@ -698,9 +755,15 @@ class _TasksViewState extends ConsumerState<TasksView> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Row(
               children: [
-                Text('Tasks', style: CupertinoTheme.of(context).textTheme.navLargeTitleTextStyle),
+                Text('Tasks', style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: labelColor)),
                 const Spacer(),
-                CNButton.icon(icon: const CNSymbol('plus'), onPressed: () => _showTaskDialog(context, ref)),
+                // Обычная кнопка, не нативная
+                AdaptiveButton.icon(
+                    
+                    icon: CupertinoIcons.add,
+                    onPressed: () => _showTaskDialog(context, ref),
+                    style: AdaptiveButtonStyle.plain
+                ),
               ],
             ),
           ),
@@ -738,49 +801,53 @@ class _TasksViewState extends ConsumerState<TasksView> {
                         padding: const EdgeInsets.only(right: 20),
                         child: const Icon(CupertinoIcons.trash, color: Colors.white),
                       ),
-                      child: GestureDetector(
+                      child: AppContainer( // Легкий контейнер
                         onTap: () => _showTaskDialog(context, ref, task: task),
-                        child: NativeGlassContainer(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              AdaptiveCheckbox(
-                                value: task.isCompleted,
-                                onChanged: (val) => ref.read(appControllerProvider).toggleTask(task),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // ЛЕГКИЙ ЧЕКБОКС (Кнопка с иконкой) вместо тяжелого AdaptiveCheckbox
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              minSize: 0,
+                              onPressed: () => ref.read(appControllerProvider).toggleTask(task),
+                              child: Icon(
+                                task.isCompleted ? CupertinoIcons.check_mark_circled_solid : CupertinoIcons.circle,
+                                size: 24,
+                                color: task.isCompleted ? CupertinoTheme.of(context).primaryColor : CupertinoColors.systemGrey3.resolveFrom(context),
                               ),
-                              const Gap(12),
-                              Expanded(child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    task.title,
-                                    style: TextStyle(
-                                      decoration: task.isCompleted ? TextDecoration.lineThrough : null,
-                                      color: task.isCompleted
-                                          ? CupertinoColors.systemGrey
-                                          : CupertinoColors.label.resolveFrom(context),
-                                      fontSize: 17,
-                                    ),
+                            ),
+                            const Gap(12),
+                            Expanded(child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  task.title,
+                                  style: TextStyle(
+                                    decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+                                    color: task.isCompleted
+                                        ? CupertinoColors.systemGrey
+                                        : labelColor,
+                                    fontSize: 17,
                                   ),
-                                  if (task.description != null && task.description!.isNotEmpty)
-                                    Text(task.description!, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(fontSize: 13, color: CupertinoColors.secondaryLabel.resolveFrom(context))),
+                                ),
+                                if (task.description != null && task.description!.isNotEmpty)
+                                  Text(task.description!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 13, color: CupertinoColors.secondaryLabel.resolveFrom(context))),
 
-                                  const Gap(4),
-                                  Row(
-                                    children: [
-                                      if (task.dueDate != null)
-                                        Text(DateFormat('MMM d').format(task.dueDate!), style: const TextStyle(fontSize: 12, color: CupertinoColors.systemRed)),
-                                      if (task.dueDate != null && task.isRepeating) const Gap(8),
-                                      if (task.isRepeating)
-                                        Icon(CupertinoIcons.repeat, size: 12, color: CupertinoColors.secondaryLabel.resolveFrom(context)),
-                                    ],
-                                  ),
-                                ],
-                              )),
-                            ],
-                          ),
+                                const Gap(4),
+                                Row(
+                                  children: [
+                                    if (task.dueDate != null)
+                                      Text(DateFormat('MMM d').format(task.dueDate!), style: const TextStyle(fontSize: 12, color: CupertinoColors.systemRed)),
+                                    if (task.dueDate != null && task.isRepeating) const Gap(8),
+                                    if (task.isRepeating)
+                                      Icon(CupertinoIcons.repeat, size: 12, color: CupertinoColors.secondaryLabel.resolveFrom(context)),
+                                  ],
+                                ),
+                              ],
+                            )),
+                          ],
                         ),
                       ),
                     );
@@ -796,81 +863,71 @@ class _TasksViewState extends ConsumerState<TasksView> {
     );
   }
 
+  // _showTaskDialog оставляем как был, он использует модалку, там можно и Adaptive виджеты
   void _showTaskDialog(BuildContext context, WidgetRef ref, {Task? task}) {
     final titleCtrl = TextEditingController(text: task?.title ?? '');
     final descCtrl = TextEditingController(text: task?.description ?? '');
     DateTime? pickedDate = task?.dueDate;
     bool isRepeating = task?.isRepeating ?? false;
 
-    showCupertinoDialog(
+    showCupertinoModalPopup(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: Center(
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                width: 320,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: CupertinoColors.systemBackground.resolveFrom(context),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        builder: (context, setState) => Material(
+          color: Colors.transparent,
+          child: CupertinoActionSheet(
+            title: Text(task == null ? 'New Task' : 'Edit Task'),
+            message: Column(
+              children: [
+                const Gap(16),
+                CupertinoTextField(controller: titleCtrl, placeholder: 'Title'),
+                const Gap(12),
+                CupertinoTextField(controller: descCtrl, placeholder: 'Description', maxLines: 3),
+                const Gap(16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(task == null ? 'New Task' : 'Edit Task', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoColors.label.resolveFrom(context))),
-                    const Gap(20),
-                    AdaptiveTextField(controller: titleCtrl, placeholder: 'Title', autofocus: task == null),
-                    const Gap(12),
-                    AdaptiveTextField(controller: descCtrl, placeholder: 'Description', maxLines: 3),
-                    const Gap(20),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Due Date', style: TextStyle(color: CupertinoColors.label.resolveFrom(context))),
-                        AdaptiveButton(
-                          style: AdaptiveButtonStyle.tinted,
-                          label: pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(pickedDate!),
-                          onPressed: () async {
-                            final date = await AdaptiveDatePicker.show(context: context, initialDate: DateTime.now());
-                            if(date != null) setState(() => pickedDate = date);
-                          },
-                        )
-                      ],
-                    ),
-                    const Divider(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Repeat Daily', style: TextStyle(color: CupertinoColors.label.resolveFrom(context))),
-                        AdaptiveSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
-                      ],
-                    ),
-                    const Gap(20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        AdaptiveButton(label: 'Cancel', style: AdaptiveButtonStyle.plain, onPressed: () => Navigator.pop(ctx)),
-                        const Gap(8),
-                        AdaptiveButton(label: 'Save', onPressed: () {
-                          if (titleCtrl.text.isNotEmpty) {
-                            if (task == null) {
-                              ref.read(appControllerProvider).addTask(titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
-                            } else {
-                              ref.read(appControllerProvider).updateTask(task, titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
-                            }
-                            Navigator.pop(ctx);
-                          }
-                        }),
-                      ],
+                    const Text('Due Date'),
+                    AdaptiveButton(
+                      
+                      style: AdaptiveButtonStyle.tinted,
+                      label: pickedDate == null ? 'Set Date' : DateFormat('MMM d').format(pickedDate!),
+                      onPressed: () async {
+                        final date = await AdaptiveDatePicker.show(context: context, initialDate: DateTime.now());
+                        if(date != null) setState(() => pickedDate = date);
+                      },
                     )
                   ],
                 ),
-              ),
+                const Gap(12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Repeat Daily'),
+                    // Тут свитч безопасен, это модалка
+                    AdaptiveSwitch(value: isRepeating, onChanged: (v) => setState(() => isRepeating = v)),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              CupertinoActionSheetAction(
+                onPressed: () {
+                  if (titleCtrl.text.isNotEmpty) {
+                    if (task == null) {
+                      ref.read(appControllerProvider).addTask(titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
+                    } else {
+                      ref.read(appControllerProvider).updateTask(task, titleCtrl.text, descCtrl.text, pickedDate, isRepeating);
+                    }
+                    Navigator.pop(ctx);
+                  }
+                },
+                child: const Text('Save'),
+              )
+            ],
+            cancelButton: CupertinoActionSheetAction(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
             ),
           ),
         ),
@@ -883,11 +940,12 @@ class _TasksViewState extends ConsumerState<TasksView> {
 
 /home/flomik/StudioProjects/Tempo/lib/presentation/views/settings_view.dart settings_view.dart
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show Colors, ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:tempo/logic.dart';
-import 'package:tempo/presentation/widgets/native_glass_container.dart';
+import 'package:tempo/presentation/widgets/app_container.dart';
 
 class SettingsView extends ConsumerWidget {
   const SettingsView({super.key});
@@ -896,6 +954,7 @@ class SettingsView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(themeModeProvider);
     final isDark = theme == ThemeMode.dark;
+    final labelColor = CupertinoColors.label.resolveFrom(context);
 
     return SafeArea(
       child: Padding(
@@ -903,19 +962,20 @@ class SettingsView extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
                 'Settings',
-                style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold)
+                style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: labelColor)
             ),
             const Gap(30),
-            NativeGlassContainer(
+            AppContainer(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Dark Mode', style: TextStyle(fontSize: 17)),
+                  Text('Dark Mode', style: TextStyle(fontSize: 17, color: labelColor)),
                   AdaptiveSwitch(
                     value: isDark,
+                    activeColor: CupertinoTheme.of(context).primaryColor,
                     onChanged: (val) {
                       ref.read(themeModeProvider.notifier).state = val ? ThemeMode.dark : ThemeMode.light;
                     },
@@ -937,14 +997,13 @@ class SettingsView extends ConsumerWidget {
 /home/flomik/StudioProjects/Tempo/lib/presentation/views/home_view.dart home_view.dart
 import 'dart:ui';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:cupertino_native/cupertino_native.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors, Icons, Material;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:tempo/database.dart';
 import 'package:tempo/logic.dart';
-import 'package:tempo/presentation/widgets/native_glass_container.dart';
+import 'package:tempo/presentation/widgets/app_container.dart'; // Наш новый контейнер
 
 class HomeView extends ConsumerWidget {
   const HomeView({super.key});
@@ -955,61 +1014,64 @@ class HomeView extends ConsumerWidget {
     final duration = ref.watch(currentDurationProvider);
     final activitiesAsync = ref.watch(activitiesStreamProvider);
 
+    // Получаем правильные цвета текста из темы
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+    final secondaryLabelColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
             const Gap(20),
-            SizedBox(
-              height: 220,
-              child: NativeGlassContainer(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Current Session', style: TextStyle(color: CupertinoColors.secondaryLabel.resolveFrom(context))),
-                        if (activeSession != null)
-                          const CNIcon(symbol: CNSymbol('record.circle', color: CupertinoColors.systemRed))
-                      ],
+            // Основной таймер
+            AppContainer(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Current Session', style: TextStyle(color: secondaryLabelColor)),
+                      if (activeSession != null)
+                        const Icon(CupertinoIcons.recordingtape, color: CupertinoColors.systemRed)
+                    ],
+                  ),
+                  const Gap(10),
+                  Text(
+                    _formatDuration(duration),
+                    style: TextStyle(
+                      fontSize: 56,
+                      fontWeight: FontWeight.w200,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: labelColor,
                     ),
-                    const Gap(10),
-                    Text(
-                      _formatDuration(duration),
-                      style: TextStyle(
-                        fontSize: 56,
-                        fontWeight: FontWeight.w200,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                        color: CupertinoColors.label.resolveFrom(context),
+                  ),
+                  const Gap(20),
+                  if (activeSession != null)
+                    SizedBox(
+                      width: double.infinity,
+                      child: AdaptiveButton(
+                         // Flutter-кнопка стабильнее
+                        onPressed: () => ref.read(appControllerProvider).toggleSession(activeSession.activityId),
+                        label: 'Stop',
+                        style: AdaptiveButtonStyle.filled,
+                        color: CupertinoColors.systemRed,
                       ),
-                    ),
-                    const Gap(20),
-                    if (activeSession != null)
-                      SizedBox(
-                        width: double.infinity,
-                        child: AdaptiveButton(
-                          onPressed: () => ref.read(appControllerProvider).toggleSession(activeSession.activityId),
-                          label: 'Stop',
-                          style: AdaptiveButtonStyle.filled,
-                          color: CupertinoColors.systemRed,
-                        ),
-                      )
-                    else
-                      Text('Tap an activity to start', style: TextStyle(color: CupertinoColors.activeBlue.resolveFrom(context))),
-                  ],
-                ),
+                    )
+                  else
+                    Text('Tap an activity to start', style: TextStyle(color: CupertinoTheme.of(context).primaryColor)),
+                ],
               ),
             ),
             const Gap(30),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Activities', style: CupertinoTheme.of(context).textTheme.navTitleTextStyle),
-                // ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем AdaptiveButton.icon
+                Text('Activities', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: labelColor)),
                 AdaptiveButton.icon(
+                  
                   onPressed: () => Navigator.of(context, rootNavigator: true).push(
                     CupertinoPageRoute(builder: (_) => const ActivitiesManagerPage()),
                   ),
@@ -1030,7 +1092,7 @@ class HomeView extends ConsumerWidget {
                     ],
                   ),
                   loading: () => const CupertinoActivityIndicator(),
-                  error: (e, s) => Text('$e'),
+                  error: (e, s) => Text('$e', style: TextStyle(color: labelColor)),
                 ),
               ),
             ),
@@ -1053,37 +1115,41 @@ class _ActivityChip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final activityColor = Color(int.parse(activity.color));
+
     return AdaptiveButton(
+       // ВАЖНО: Используем Flutter-кнопки в списках, чтобы не лагало
       onPressed: () => ref.read(appControllerProvider).toggleSession(activity.id),
       label: activity.name,
       style: isActive ? AdaptiveButtonStyle.filled : AdaptiveButtonStyle.tinted,
-      color: isActive ? CupertinoTheme.of(context).primaryColor : CupertinoColors.systemGrey5.resolveFrom(context),
-      textColor: isActive ? CupertinoColors.white : CupertinoColors.label.resolveFrom(context),
+      color: isActive ? activityColor : CupertinoColors.systemGrey5.resolveFrom(context),
+      textColor: isActive ? CupertinoColors.white : activityColor,
     );
   }
 }
 
-// --- ACTIVITIES MANAGER PAGE ---
 class ActivitiesManagerPage extends ConsumerWidget {
   const ActivitiesManagerPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activitiesAsync = ref.watch(activitiesStreamProvider);
+    final labelColor = CupertinoColors.label.resolveFrom(context);
 
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: const Text('Manage Activities'),
-        trailing: AdaptiveButton.icon( // ИСПРАВЛЕНИЕ ЗДЕСЬ
-          style: AdaptiveButtonStyle.plain,
-          icon: CupertinoIcons.add,
+        // Обычная кнопка вместо AdaptiveButton, чтобы не конфликтовала с навигатором
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          child: const Icon(CupertinoIcons.add),
           onPressed: () => _showEditor(context, ref, null),
         ),
       ),
       child: SafeArea(
         child: activitiesAsync.when(
           data: (activities) {
-            if (activities.isEmpty) return const Center(child: Text('No activities'));
+            if (activities.isEmpty) return Center(child: Text('No activities', style: TextStyle(color: labelColor)));
             return ListView.separated(
               padding: const EdgeInsets.all(20),
               itemCount: activities.length,
@@ -1096,22 +1162,27 @@ class ActivitiesManagerPage extends ConsumerWidget {
                   background: Container(
                     alignment: Alignment.centerRight,
                     padding: const EdgeInsets.only(right: 20),
-                    decoration: BoxDecoration(color: CupertinoColors.destructiveRed, borderRadius: BorderRadius.circular(12)),
+                    decoration: BoxDecoration(color: CupertinoColors.destructiveRed, borderRadius: BorderRadius.circular(16)),
                     child: const Icon(CupertinoIcons.delete, color: Colors.white),
                   ),
                   onDismissed: (_) => ref.read(appControllerProvider).deleteActivity(act.id),
-                  child: AdaptiveListTile(
+                  child: AppContainer( // Используем легкий контейнер
                     onTap: () => _showEditor(context, ref, act),
-                    title: Text(act.name),
-                    leading: Container(width: 16, height: 16, decoration: BoxDecoration(color: Color(int.parse(act.color)), shape: BoxShape.circle)),
-                    trailing: const Icon(CupertinoIcons.pencil, size: 16),
+                    child: Row(
+                      children: [
+                        Container(width: 16, height: 16, decoration: BoxDecoration(color: Color(int.parse(act.color)), shape: BoxShape.circle)),
+                        const Gap(12),
+                        Expanded(child: Text(act.name, style: TextStyle(color: labelColor, fontSize: 17))),
+                        Icon(CupertinoIcons.pencil, size: 18, color: CupertinoColors.systemGrey.resolveFrom(context)),
+                      ],
+                    ),
                   ),
                 );
               },
             );
           },
           loading: () => const Center(child: CupertinoActivityIndicator()),
-          error: (e,s) => Center(child: Text('$e')),
+          error: (e,s) => Center(child: Text('$e', style: TextStyle(color: labelColor))),
         ),
       ),
     );
@@ -1121,68 +1192,56 @@ class ActivitiesManagerPage extends ConsumerWidget {
     final nameCtrl = TextEditingController(text: activity?.name ?? '');
     String selectedColor = activity?.color ?? '0xFF007AFF';
     final colors = ['0xFF007AFF', '0xFFFF2D55', '0xFF34C759', '0xFFFF9500', '0xFFAF52DE', '0xFF5856D6', '0xFF8E8E93', '0xFF000000'];
+    final labelColor = CupertinoColors.label.resolveFrom(context);
 
     showCupertinoDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: Center(
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                width: 300,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: CupertinoColors.systemBackground.resolveFrom(context),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Activity', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoColors.label.resolveFrom(context))),
-                    const Gap(20),
-                    CupertinoTextField(controller: nameCtrl, placeholder: 'Name'),
-                    const Gap(20),
-                    Text('Color', style: TextStyle(color: CupertinoColors.systemGrey.resolveFrom(context))),
-                    const Gap(10),
-                    Wrap(
-                      spacing: 12, runSpacing: 12,
-                      children: colors.map((c) => GestureDetector(
-                        onTap: () => setState(() => selectedColor = c),
-                        child: Container(
-                          width: 32, height: 32,
-                          decoration: BoxDecoration(
-                            color: Color(int.parse(c)),
-                            shape: BoxShape.circle,
-                            border: selectedColor == c ? Border.all(color: CupertinoColors.label.resolveFrom(context), width: 3) : null,
-                          ),
-                        ),
-                      )).toList(),
+        builder: (context, setState) => Material( // Material нужен для обработки цветов
+          color: Colors.transparent,
+          child: CupertinoAlertDialog(
+            title: Text(activity == null ? 'New Activity' : 'Edit Activity'),
+            content: Column(
+              children: [
+                const Gap(16),
+                CupertinoTextField(controller: nameCtrl, placeholder: 'Name'),
+                const Gap(16),
+                Wrap(
+                  spacing: 12, runSpacing: 12,
+                  children: colors.map((c) => GestureDetector(
+                    onTap: () => setState(() => selectedColor = c),
+                    child: Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(
+                        color: Color(int.parse(c)),
+                        shape: BoxShape.circle,
+                        border: selectedColor == c ? Border.all(color: labelColor, width: 3) : null,
+                      ),
                     ),
-                    const Gap(24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        AdaptiveButton(label: 'Cancel', style: AdaptiveButtonStyle.plain, onPressed: () => Navigator.pop(ctx)),
-                        const Gap(8),
-                        AdaptiveButton(label: 'Save', onPressed: () {
-                          if (nameCtrl.text.isNotEmpty) {
-                            if (activity == null) {
-                              ref.read(appControllerProvider).addActivity(nameCtrl.text, selectedColor);
-                            } else {
-                              ref.read(appControllerProvider).updateActivity(activity.copyWith(name: nameCtrl.text, color: selectedColor));
-                            }
-                            Navigator.pop(ctx);
-                          }
-                        }),
-                      ],
-                    )
-                  ],
+                  )).toList(),
                 ),
-              ),
+              ],
             ),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              CupertinoDialogAction(
+                isDefaultAction: true,
+                onPressed: () {
+                  if (nameCtrl.text.isNotEmpty) {
+                    if (activity == null) {
+                      ref.read(appControllerProvider).addActivity(nameCtrl.text, selectedColor);
+                    } else {
+                      ref.read(appControllerProvider).updateActivity(activity.copyWith(name: nameCtrl.text, color: selectedColor));
+                    }
+                    Navigator.pop(ctx);
+                  }
+                },
+                child: const Text('Save'),
+              ),
+            ],
           ),
         ),
       ),
