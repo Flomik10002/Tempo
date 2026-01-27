@@ -44,15 +44,42 @@ class _TasksViewState extends ConsumerState<TasksView> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: AdaptiveSegmentedControl(
-              labels: const ['Active', 'Scheduled', 'Repeat', 'Done'],
-              selectedIndex: _filter.index,
-              onValueChanged: (index) {
-                setState(() => _filter = TaskFilter.values[index]);
+            child: CupertinoSlidingSegmentedControl<TaskFilter>(
+              groupValue: _filter,
+              onValueChanged: (value) {
+                if (value != null) {
+                  setState(() => _filter = value);
+                }
               },
-              color: CupertinoTheme.of(context).primaryColor,
+              thumbColor: CupertinoDynamicColor.resolve(
+                CupertinoColors.systemBackground,
+                context,
+              ),
+              backgroundColor: CupertinoDynamicColor.resolve(
+                CupertinoColors.tertiarySystemFill,
+                context,
+              ),
+              children: const {
+                TaskFilter.active: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('Active'),
+                ),
+                TaskFilter.scheduled: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('Scheduled'),
+                ),
+                TaskFilter.repeating: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('Repeat'),
+                ),
+                TaskFilter.done: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('Done'),
+                ),
+              },
             ),
           ),
+
           const Gap(10),
           Expanded(
             child: tasksAsync.when(
