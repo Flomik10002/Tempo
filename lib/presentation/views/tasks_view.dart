@@ -44,42 +44,17 @@ class _TasksViewState extends ConsumerState<TasksView> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: CupertinoSlidingSegmentedControl<TaskFilter>(
+            child: TabBarStyleSegmentedControl<TaskFilter>(
+              values: const {
+                TaskFilter.active: 'Active',
+                TaskFilter.scheduled: 'Scheduled',
+                TaskFilter.repeating: 'Repeat',
+                TaskFilter.done: 'Done',
+              },
               groupValue: _filter,
-              onValueChanged: (value) {
-                if (value != null) {
-                  setState(() => _filter = value);
-                }
-              },
-              thumbColor: CupertinoDynamicColor.resolve(
-                CupertinoColors.systemBackground,
-                context,
-              ),
-              backgroundColor: CupertinoDynamicColor.resolve(
-                CupertinoColors.tertiarySystemFill,
-                context,
-              ),
-              children: const {
-                TaskFilter.active: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('Active'),
-                ),
-                TaskFilter.scheduled: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('Scheduled'),
-                ),
-                TaskFilter.repeating: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('Repeat'),
-                ),
-                TaskFilter.done: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('Done'),
-                ),
-              },
+              onValueChanged: (val) => setState(() => _filter = val),
             ),
           ),
-
           const Gap(10),
           Expanded(
             child: tasksAsync.when(
@@ -162,6 +137,71 @@ class _TasksViewState extends ConsumerState<TasksView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class TabBarStyleSegmentedControl<T> extends StatelessWidget {
+  const TabBarStyleSegmentedControl({
+    super.key,
+    required this.values,
+    required this.groupValue,
+    required this.onValueChanged,
+  });
+
+  final Map<T, String> values;
+  final T groupValue;
+  final ValueChanged<T> onValueChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = CupertinoTheme.of(context).primaryColor;
+    final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
+    final divider = CupertinoColors.separator.resolveFrom(context);
+
+    return Container(
+      height: 32,
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: divider, width: 0.5),
+        ),
+      ),
+      child: Row(
+        children: values.entries.map((entry) {
+          final selected = entry.key == groupValue;
+
+          return Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onValueChanged(entry.key),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  border: selected
+                      ? Border(
+                    bottom: BorderSide(
+                      color: primary,
+                      width: 2.5,
+                    ),
+                  )
+                      : null,
+                ),
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 180),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: selected ? primary : secondary,
+                  ),
+                  child: Text(entry.value),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
