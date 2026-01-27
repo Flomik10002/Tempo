@@ -1,4 +1,3 @@
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors, Dismissible, DismissDirection, Icons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,7 +5,10 @@ import 'package:gap/gap.dart';
 import 'package:intl/intl.dart';
 import 'package:tempo/logic.dart';
 import 'package:tempo/presentation/widgets/app_container.dart';
-import 'package:tempo/presentation/screens/task_editor_screen.dart'; // Импорт нового экрана
+import 'package:tempo/presentation/screens/task_editor_screen.dart';
+
+// 👇 НАТИВНЫЙ iOS 26 SEGMENTED CONTROL
+import 'package:adaptive_platform_ui/src/widgets/ios26/ios26_segmented_control.dart';
 
 class TasksView extends ConsumerStatefulWidget {
   const TasksView({super.key});
@@ -29,9 +31,15 @@ class _TasksViewState extends ConsumerState<TasksView> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Row(
               children: [
-                Text('Tasks', style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: labelColor)),
+                Text(
+                  'Tasks',
+                  style: TextStyle(
+                    fontSize: 34,
+                    fontWeight: FontWeight.bold,
+                    color: labelColor,
+                  ),
+                ),
                 const Spacer(),
-                // Кнопка добавления ведет на новый экран
                 CupertinoButton(
                   padding: EdgeInsets.zero,
                   onPressed: () => Navigator.of(context, rootNavigator: true).push(
@@ -42,89 +50,137 @@ class _TasksViewState extends ConsumerState<TasksView> {
               ],
             ),
           ),
+
+          /// 🔥 НАТИВНЫЙ iOS 26 LIQUID GLASS SEGMENTED CONTROL
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: TabBarStyleSegmentedControl<TaskFilter>(
-              values: const {
-                TaskFilter.active: 'Active',
-                TaskFilter.scheduled: 'Scheduled',
-                TaskFilter.repeating: 'Repeat',
-                TaskFilter.done: 'Done',
+            child: IOS26SegmentedControl(
+              labels: const ['Active', 'Scheduled', 'Repeat', 'Done'],
+              selectedIndex: _filter.index,
+              onValueChanged: (index) {
+                setState(() => _filter = TaskFilter.values[index]);
               },
-              groupValue: _filter,
-              onValueChanged: (val) => setState(() => _filter = val),
+              height: 36,
+              color: CupertinoTheme.of(context).primaryColor, // тот же tint что у TabBar
             ),
           ),
+
           const Gap(10),
+
           Expanded(
             child: tasksAsync.when(
               data: (tasks) {
-                if (tasks.isEmpty) return Center(child: Text("Empty", style: TextStyle(color: CupertinoColors.systemGrey.resolveFrom(context))));
+                if (tasks.isEmpty) {
+                  return Center(
+                    child: Text(
+                      "Empty",
+                      style: TextStyle(
+                        color: CupertinoColors.systemGrey.resolveFrom(context),
+                      ),
+                    ),
+                  );
+                }
+
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
                   itemCount: tasks.length,
-                  separatorBuilder: (_,__) => const Gap(12),
+                  separatorBuilder: (_, __) => const Gap(12),
                   itemBuilder: (ctx, index) {
                     final task = tasks[index];
+
                     return Dismissible(
                       key: Key('${task.id}'),
                       direction: DismissDirection.endToStart,
-                      onDismissed: (_) => ref.read(appControllerProvider).deleteTask(task),
+                      onDismissed: (_) =>
+                          ref.read(appControllerProvider).deleteTask(task),
                       background: Container(
-                        decoration: BoxDecoration(color: CupertinoColors.destructiveRed, borderRadius: BorderRadius.circular(16)),
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.destructiveRed,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                         alignment: Alignment.centerRight,
                         padding: const EdgeInsets.only(right: 20),
                         child: const Icon(CupertinoIcons.trash, color: Colors.white),
                       ),
                       child: AppContainer(
-                        // Нажатие открывает экран редактирования
                         onTap: () => Navigator.of(context, rootNavigator: true).push(
-                          CupertinoPageRoute(builder: (_) => TaskEditorScreen(task: task)),
+                          CupertinoPageRoute(
+                              builder: (_) => TaskEditorScreen(task: task)),
                         ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Обычная кнопка вместо нативного чекбокса
                             CupertinoButton(
                               padding: EdgeInsets.zero,
                               minSize: 0,
-                              onPressed: () => ref.read(appControllerProvider).toggleTask(task),
+                              onPressed: () =>
+                                  ref.read(appControllerProvider).toggleTask(task),
                               child: Icon(
-                                task.isCompleted ? CupertinoIcons.check_mark_circled_solid : CupertinoIcons.circle,
+                                task.isCompleted
+                                    ? CupertinoIcons.check_mark_circled_solid
+                                    : CupertinoIcons.circle,
                                 size: 24,
-                                color: task.isCompleted ? CupertinoTheme.of(context).primaryColor : CupertinoColors.systemGrey3.resolveFrom(context),
+                                color: task.isCompleted
+                                    ? CupertinoTheme.of(context).primaryColor
+                                    : CupertinoColors.systemGrey3.resolveFrom(context),
                               ),
                             ),
                             const Gap(12),
-                            Expanded(child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  task.title,
-                                  style: TextStyle(
-                                    decoration: task.isCompleted ? TextDecoration.lineThrough : null,
-                                    color: task.isCompleted
-                                        ? CupertinoColors.systemGrey
-                                        : labelColor,
-                                    fontSize: 17,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    task.title,
+                                    style: TextStyle(
+                                      decoration: task.isCompleted
+                                          ? TextDecoration.lineThrough
+                                          : null,
+                                      color: task.isCompleted
+                                          ? CupertinoColors.systemGrey
+                                          : labelColor,
+                                      fontSize: 17,
+                                    ),
                                   ),
-                                ),
-                                if (task.description != null && task.description!.isNotEmpty)
-                                  Text(task.description!, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(fontSize: 13, color: CupertinoColors.secondaryLabel.resolveFrom(context))),
-
-                                const Gap(4),
-                                Row(
-                                  children: [
-                                    if (task.dueDate != null)
-                                      Text(DateFormat('MMM d').format(task.dueDate!), style: const TextStyle(fontSize: 12, color: CupertinoColors.systemRed)),
-                                    if (task.dueDate != null && task.isRepeating) const Gap(8),
-                                    if (task.isRepeating)
-                                      Icon(CupertinoIcons.repeat, size: 12, color: CupertinoColors.secondaryLabel.resolveFrom(context)),
-                                  ],
-                                ),
-                              ],
-                            )),
+                                  if (task.description != null &&
+                                      task.description!.isNotEmpty)
+                                    Text(
+                                      task.description!,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: CupertinoColors.secondaryLabel
+                                            .resolveFrom(context),
+                                      ),
+                                    ),
+                                  const Gap(4),
+                                  Row(
+                                    children: [
+                                      if (task.dueDate != null)
+                                        Text(
+                                          DateFormat('MMM d')
+                                              .format(task.dueDate!),
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: CupertinoColors.systemRed,
+                                          ),
+                                        ),
+                                      if (task.dueDate != null &&
+                                          task.isRepeating)
+                                        const Gap(8),
+                                      if (task.isRepeating)
+                                        Icon(
+                                          CupertinoIcons.repeat,
+                                          size: 12,
+                                          color: CupertinoColors.secondaryLabel
+                                              .resolveFrom(context),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -133,75 +189,10 @@ class _TasksViewState extends ConsumerState<TasksView> {
                 );
               },
               loading: () => const Center(child: CupertinoActivityIndicator()),
-              error: (e,s) => Center(child: Text('Error: $e')),
+              error: (e, s) => Center(child: Text('Error: $e')),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class TabBarStyleSegmentedControl<T> extends StatelessWidget {
-  const TabBarStyleSegmentedControl({
-    super.key,
-    required this.values,
-    required this.groupValue,
-    required this.onValueChanged,
-  });
-
-  final Map<T, String> values;
-  final T groupValue;
-  final ValueChanged<T> onValueChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = CupertinoTheme.of(context).primaryColor;
-    final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
-    final divider = CupertinoColors.separator.resolveFrom(context);
-
-    return Container(
-      height: 32,
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: divider, width: 0.5),
-        ),
-      ),
-      child: Row(
-        children: values.entries.map((entry) {
-          final selected = entry.key == groupValue;
-
-          return Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => onValueChanged(entry.key),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  border: selected
-                      ? Border(
-                    bottom: BorderSide(
-                      color: primary,
-                      width: 2.5,
-                    ),
-                  )
-                      : null,
-                ),
-                child: AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 180),
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: selected ? primary : secondary,
-                  ),
-                  child: Text(entry.value),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
       ),
     );
   }
