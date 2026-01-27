@@ -2,17 +2,15 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Добавлен импорт
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tempo/logic.dart';
 import 'package:tempo/presentation/app_layout.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Инициализируем хранилище
   final prefs = await SharedPreferences.getInstance();
 
   runApp(ProviderScope(
-    // Переопределяем провайдер реальным значением
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
     ],
@@ -25,7 +23,6 @@ class TempoApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Теперь это берется из SharedPreferences
     final themeMode = ref.watch(themeModeProvider);
     const primaryColor = Color(0xFF007AFF);
 
@@ -33,7 +30,6 @@ class TempoApp extends ConsumerWidget {
       title: 'Tempo',
       themeMode: themeMode,
 
-      // Material (Android)
       materialLightTheme: ThemeData.light().copyWith(
         primaryColor: primaryColor,
         colorScheme: ColorScheme.fromSeed(seedColor: primaryColor),
@@ -46,7 +42,6 @@ class TempoApp extends ConsumerWidget {
         ),
       ),
 
-      // Cupertino (iOS)
       cupertinoLightTheme: const CupertinoThemeData(
         brightness: Brightness.light,
         primaryColor: primaryColor,
@@ -71,6 +66,7 @@ class TempoApp extends ConsumerWidget {
         DefaultCupertinoLocalizations.delegate,
         DefaultWidgetsLocalizations.delegate,
       ],
+
       home: const AppLayout(),
     );
   }
