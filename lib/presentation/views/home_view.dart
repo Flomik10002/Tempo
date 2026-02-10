@@ -121,7 +121,6 @@ class _ActivityChip extends ConsumerWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: BoxDecoration(
-          // Если активна - красим в цвет активности, если нет - в прозрачно-серый
           color: isActive ? activityColor : CupertinoColors.secondarySystemBackground.resolveFrom(context),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(

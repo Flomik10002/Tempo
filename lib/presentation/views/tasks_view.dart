@@ -7,7 +7,6 @@ import 'package:tempo/logic.dart';
 import 'package:tempo/presentation/widgets/app_container.dart';
 import 'package:tempo/presentation/screens/task_editor_screen.dart';
 
-// 👇 НАТИВНЫЙ iOS 26 SEGMENTED CONTROL
 import 'package:adaptive_platform_ui/src/widgets/ios26/ios26_segmented_control.dart';
 
 class TasksView extends ConsumerStatefulWidget {

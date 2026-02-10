@@ -14,14 +14,13 @@ class AppContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Получаем цвета, которые сами меняются при смене темы
     final backgroundColor = CupertinoColors.secondarySystemBackground.resolveFrom(context);
     final borderColor = CupertinoColors.separator.resolveFrom(context);
 
     final container = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: backgroundColor, // В светлой теме - светло-серый, в темной - темно-серый
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: borderColor.withOpacity(0.5),

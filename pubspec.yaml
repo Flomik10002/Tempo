@@ -17,6 +17,7 @@ dependencies:
   intl: ^0.19.0
   adaptive_platform_ui: ^0.1.98
   glass: ^2.0.0+2                  # Хелпер для размытия фона (Glassmorphism)
+  flutter_colorpicker: ^1.1.0    # Color picker для кастомных цветов
 
   # State Management
   flutter_riverpod: ^2.4.9
