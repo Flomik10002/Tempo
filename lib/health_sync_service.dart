@@ -15,17 +15,25 @@ class HealthSyncService {
       }
 
       const type = HealthDataType.SLEEP_ASLEEP;
-      final permissions = [HealthDataAccess.READ_WRITE];
+      final permissions = [HealthDataAccess.WRITE];
       final authorized = await _health.requestAuthorization(
         [type],
         permissions: permissions,
       );
       if (!authorized) return;
+      final hasWritePermission = await _health.hasPermissions(
+        [type],
+        permissions: permissions,
+      );
+      if (hasWritePermission != true) return;
 
-      await _health.deleteByClientRecordId(
+      final deleted = await _health.deleteByClientRecordId(
         dataTypeKey: type,
         clientRecordId: clientRecordId,
       );
+      if (!deleted) {
+        debugPrint('Health delete returned false for $clientRecordId');
+      }
     } catch (e) {
       debugPrint('Health delete failed: $e');
     }
@@ -49,12 +57,17 @@ class HealthSyncService {
       }
 
       const type = HealthDataType.SLEEP_ASLEEP;
-      final permissions = [HealthDataAccess.READ_WRITE];
+      final permissions = [HealthDataAccess.WRITE];
       final authorized = await _health.requestAuthorization(
         [type],
         permissions: permissions,
       );
       if (!authorized) return;
+      final hasWritePermission = await _health.hasPermissions(
+        [type],
+        permissions: permissions,
+      );
+      if (hasWritePermission != true) return;
 
       // Prevent duplicates for edited/re-synced segments created by this app.
       await _health.deleteByClientRecordId(
@@ -62,7 +75,7 @@ class HealthSyncService {
         clientRecordId: clientRecordId,
       );
 
-      await _health.writeHealthData(
+      final success = await _health.writeHealthData(
         value: minutes.toDouble(),
         type: type,
         startTime: start,
@@ -70,6 +83,9 @@ class HealthSyncService {
         recordingMethod: RecordingMethod.automatic,
         clientRecordId: clientRecordId,
       );
+      if (!success) {
+        debugPrint('Health write returned false for $clientRecordId');
+      }
     } catch (e) {
       debugPrint('Health sync failed: $e');
     }
