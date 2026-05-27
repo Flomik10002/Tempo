@@ -276,9 +276,13 @@ class AppController {
             ..where((a) => a.id.equals(session.activityId)))
           .getSingleOrNull();
       if (activity != null && activity.name.trim().toLowerCase() == 'sleep') {
-        await healthSyncService.deleteSleep(
-          clientRecordId: 'tempo_sleep_session_$sessionId',
-        );
+        final end = session.endTime;
+        if (end != null) {
+          await healthSyncService.deleteSleepInRange(
+            start: session.startTime,
+            end: end,
+          );
+        }
       }
     }
     await (db.delete(db.sessions)..where((s) => s.id.equals(sessionId))).go();
@@ -290,9 +294,33 @@ class AppController {
           ..where((s) => s.id.equals(sessionId)))
         .getSingleOrNull();
     if (session == null) return;
+
+    final activity = await (db.select(db.activities)
+          ..where((a) => a.id.equals(session.activityId)))
+        .getSingleOrNull();
+    final isSleep =
+        activity != null && activity.name.trim().toLowerCase() == 'sleep';
+
+    if (isSleep && session.endTime != null) {
+      await healthSyncService.deleteSleepInRange(
+        start: session.startTime,
+        end: session.endTime!,
+      );
+    }
+
     await (db.update(db.sessions)..where((s) => s.id.equals(sessionId))).write(
       SessionsCompanion(startTime: Value(start), endTime: Value(end)),
     );
+
+    if (isSleep) {
+      await healthSyncService.syncSleep(
+        start: start,
+        end: end,
+        clientRecordId: 'tempo_sleep_session_$sessionId',
+      );
+      return;
+    }
+
     await _syncSleepSessionIfNeeded(
       activityId: session.activityId,
       start: start,

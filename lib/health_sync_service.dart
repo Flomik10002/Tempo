@@ -71,8 +71,12 @@ class HealthSyncService {
     }
   }
 
-  Future<void> deleteSleep({required String clientRecordId}) async {
+  Future<void> deleteSleepInRange({
+    required DateTime start,
+    required DateTime end,
+  }) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    if (!end.isAfter(start)) return;
 
     try {
       await _ensureConfigured();
@@ -90,12 +94,15 @@ class HealthSyncService {
       );
       if (hasWritePermission != true) return;
 
-      final deleted = await _health.deleteByClientRecordId(
-        dataTypeKey: type,
-        clientRecordId: clientRecordId,
+      final deleted = await _health.delete(
+        type: type,
+        startTime: start,
+        endTime: end,
       );
       if (!deleted) {
-        debugPrint('Health delete returned false for $clientRecordId');
+        debugPrint(
+          'Health delete returned false for interval $start - $end',
+        );
       }
     } catch (e) {
       debugPrint('Health delete failed: $e');
@@ -128,12 +135,6 @@ class HealthSyncService {
         permissions: permissions,
       );
       if (hasWritePermission != true) return;
-
-      // Prevent duplicates for edited/re-synced segments created by this app.
-      await _health.deleteByClientRecordId(
-        dataTypeKey: type,
-        clientRecordId: clientRecordId,
-      );
 
       final success = await _health.writeHealthData(
         value: minutes.toDouble(),
