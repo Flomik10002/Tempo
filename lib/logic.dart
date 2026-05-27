@@ -13,6 +13,10 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   return db;
 });
 
+final healthSyncServiceProvider = Provider<HealthSyncService>((ref) {
+  return HealthSyncService();
+});
+
 // --- STORAGE ---
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
   throw UnimplementedError();
@@ -321,6 +325,6 @@ class AppController {
 final appControllerProvider = Provider((ref) {
   return AppController(
     ref.watch(databaseProvider),
-    HealthSyncService(),
+    ref.watch(healthSyncServiceProvider),
   );
 });
