@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Tempo reads your sleep data from Apple Health to display synced sleep sessions.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Tempo writes your sleep sessions to Apple Health.</string>
 </dict>
 </plist>

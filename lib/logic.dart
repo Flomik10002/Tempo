@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tempo/database.dart';
+import 'package:tempo/health_sync_service.dart';
 
 // DB Access
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -45,21 +46,26 @@ class ThemeNotifier extends StateNotifier<ThemeMode> {
   }
 }
 
-final themeModeProvider = StateNotifierProvider<ThemeNotifier, ThemeMode>((ref) {
+final themeModeProvider =
+    StateNotifierProvider<ThemeNotifier, ThemeMode>((ref) {
   final prefs = ref.watch(sharedPreferencesProvider);
   return ThemeNotifier(prefs);
 });
 
 // --- ACTIVITIES ---
-final activitiesStreamProvider = StreamProvider.autoDispose<List<Activity>>((ref) {
+final activitiesStreamProvider =
+    StreamProvider.autoDispose<List<Activity>>((ref) {
   final db = ref.watch(databaseProvider);
-  return (db.select(db.activities)..orderBy([(t) => OrderingTerm.asc(t.sortOrder)])).watch();
+  return (db.select(db.activities)
+        ..orderBy([(t) => OrderingTerm.asc(t.sortOrder)]))
+      .watch();
 });
 
 // --- TASKS FILTERS ---
 enum TaskFilter { active, scheduled, repeating, done }
 
-final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>((ref, filter) {
+final tasksProvider =
+    StreamProvider.autoDispose.family<List<Task>, TaskFilter>((ref, filter) {
   final db = ref.watch(databaseProvider);
   final query = db.select(db.tasks);
 
@@ -84,7 +90,8 @@ final tasksProvider = StreamProvider.autoDispose.family<List<Task>, TaskFilter>(
 // --- CALENDAR ---
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
-final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWithActivity>, DateTime>((ref, date) {
+final sessionsForDateProvider = StreamProvider.autoDispose
+    .family<List<SessionWithActivity>, DateTime>((ref, date) {
   final db = ref.watch(databaseProvider);
 
   // Начало текущего дня (00:00:00)
@@ -93,23 +100,27 @@ final sessionsForDateProvider = StreamProvider.autoDispose.family<List<SessionWi
   final endOfDay = startOfDay.add(const Duration(days: 1));
 
   final query = db.select(db.sessions).join([
-    leftOuterJoin(db.activities, db.activities.id.equalsExp(db.sessions.activityId))
+    leftOuterJoin(
+        db.activities, db.activities.id.equalsExp(db.sessions.activityId))
   ])
     ..where(
-      // Логика пересечения интервалов:
-      // Сессия должна начаться ДО конца дня И закончиться (или еще идти) ПОСЛЕ начала дня.
+        // Логика пересечения интервалов:
+        // Сессия должна начаться ДО конца дня И закончиться (или еще идти) ПОСЛЕ начала дня.
         db.sessions.startTime.isSmallerThanValue(endOfDay) &
-        (db.sessions.endTime.isNull() | db.sessions.endTime.isBiggerThanValue(startOfDay))
-    );
+            (db.sessions.endTime.isNull() |
+                db.sessions.endTime.isBiggerThanValue(startOfDay)));
 
   return query.watch().map((rows) {
-    return rows.map((row) {
-      if (row.readTableOrNull(db.activities) == null) return null;
-      return SessionWithActivity(
-        session: row.readTable(db.sessions),
-        activity: row.readTable(db.activities),
-      );
-    }).whereType<SessionWithActivity>().toList();
+    return rows
+        .map((row) {
+          if (row.readTableOrNull(db.activities) == null) return null;
+          return SessionWithActivity(
+            session: row.readTable(db.sessions),
+            activity: row.readTable(db.activities),
+          );
+        })
+        .whereType<SessionWithActivity>()
+        .toList();
   });
 });
 
@@ -122,7 +133,8 @@ class SessionWithActivity {
 // --- TIMER ---
 final activeSessionProvider = StreamProvider.autoDispose<Session?>((ref) {
   final db = ref.watch(databaseProvider);
-  return (db.select(db.sessions)..where((s) => s.endTime.isNull())).watchSingleOrNull();
+  return (db.select(db.sessions)..where((s) => s.endTime.isNull()))
+      .watchSingleOrNull();
 });
 
 final currentDurationProvider = Provider.autoDispose<Duration>((ref) {
@@ -139,14 +151,25 @@ final tickerProvider = StreamProvider.autoDispose<int>((ref) {
 // --- CONTROLLER ---
 class AppController {
   final AppDatabase db;
-  AppController(this.db);
+  final HealthSyncService healthSyncService;
+  AppController(this.db, this.healthSyncService);
 
   // Timer
   Future<void> toggleSession(int activityId) async {
-    final active = await (db.select(db.sessions)..where((s) => s.endTime.isNull())).getSingleOrNull();
+    final active = await (db.select(db.sessions)
+          ..where((s) => s.endTime.isNull()))
+        .getSingleOrNull();
     if (active != null) {
-      await (db.update(db.sessions)..where((s) => s.id.equals(active.id))).write(
-        SessionsCompanion(endTime: Value(DateTime.now())),
+      final endTime = DateTime.now();
+      await (db.update(db.sessions)..where((s) => s.id.equals(active.id)))
+          .write(
+        SessionsCompanion(endTime: Value(endTime)),
+      );
+      await _syncSleepSessionIfNeeded(
+        activityId: active.activityId,
+        start: active.startTime,
+        end: endTime,
+        sessionId: active.id,
       );
       if (active.activityId != activityId) await _start(activityId);
     } else {
@@ -155,21 +178,34 @@ class AppController {
   }
 
   Future<void> stopSession() async {
-    final active = await (db.select(db.sessions)..where((s) => s.endTime.isNull())).getSingleOrNull();
+    final active = await (db.select(db.sessions)
+          ..where((s) => s.endTime.isNull()))
+        .getSingleOrNull();
     if (active != null) {
-      await (db.update(db.sessions)..where((s) => s.id.equals(active.id))).write(
-        SessionsCompanion(endTime: Value(DateTime.now())),
+      final endTime = DateTime.now();
+      await (db.update(db.sessions)..where((s) => s.id.equals(active.id)))
+          .write(
+        SessionsCompanion(endTime: Value(endTime)),
+      );
+      await _syncSleepSessionIfNeeded(
+        activityId: active.activityId,
+        start: active.startTime,
+        end: endTime,
+        sessionId: active.id,
       );
     }
   }
 
   Future<void> _start(int id) async {
-    await db.into(db.sessions).insert(SessionsCompanion.insert(activityId: id, startTime: DateTime.now()));
+    await db.into(db.sessions).insert(
+        SessionsCompanion.insert(activityId: id, startTime: DateTime.now()));
   }
 
   // Activities
   Future<void> addActivity(String name, String color) async {
-    await db.into(db.activities).insert(ActivitiesCompanion.insert(name: name, color: color));
+    await db
+        .into(db.activities)
+        .insert(ActivitiesCompanion.insert(name: name, color: color));
   }
 
   Future<void> updateActivity(Activity activity) async {
@@ -182,49 +218,109 @@ class AppController {
 
   // Tasks
   Future<void> toggleTask(Task task) async {
-    await db.update(db.tasks).replace(task.copyWith(isCompleted: !task.isCompleted));
+    await db
+        .update(db.tasks)
+        .replace(task.copyWith(isCompleted: !task.isCompleted));
   }
 
   Future<void> deleteTask(Task task) async {
     await db.delete(db.tasks).delete(task);
   }
 
-  Future<void> updateTask(Task task, String title, String? desc, DateTime? dueDate, bool isRepeating) async {
+  Future<void> updateTask(Task task, String title, String? desc,
+      DateTime? dueDate, bool isRepeating) async {
     await db.update(db.tasks).replace(task.copyWith(
-      title: title,
-      description: Value(desc),
-      dueDate: Value(dueDate),
-      isRepeating: isRepeating,
-    ));
+          title: title,
+          description: Value(desc),
+          dueDate: Value(dueDate),
+          isRepeating: isRepeating,
+        ));
   }
 
-  Future<void> addTask(String title, String? desc, DateTime? dueDate, bool isRepeating) async {
+  Future<void> addTask(
+      String title, String? desc, DateTime? dueDate, bool isRepeating) async {
     await db.into(db.tasks).insert(TasksCompanion.insert(
-      title: title,
-      description: Value(desc),
-      dueDate: Value(dueDate),
-      isRepeating: Value(isRepeating),
-    ));
+          title: title,
+          description: Value(desc),
+          dueDate: Value(dueDate),
+          isRepeating: Value(isRepeating),
+        ));
   }
 
   // Calendar
   Future<void> addSegment(DateTime start, DateTime end, int activityId) async {
-    await db.into(db.sessions).insert(SessionsCompanion.insert(
+    final sessionId =
+        await db.into(db.sessions).insert(SessionsCompanion.insert(
+              activityId: activityId,
+              startTime: start,
+              endTime: Value(end),
+            ));
+    await _syncSleepSessionIfNeeded(
       activityId: activityId,
-      startTime: start,
-      endTime: Value(end),
-    ));
+      start: start,
+      end: end,
+      sessionId: sessionId,
+    );
   }
 
   Future<void> deleteSession(int sessionId) async {
+    final session = await (db.select(db.sessions)
+          ..where((s) => s.id.equals(sessionId)))
+        .getSingleOrNull();
+    if (session != null) {
+      final activity = await (db.select(db.activities)
+            ..where((a) => a.id.equals(session.activityId)))
+          .getSingleOrNull();
+      if (activity != null && activity.name.trim().toLowerCase() == 'sleep') {
+        await healthSyncService.deleteSleep(
+          clientRecordId: 'tempo_sleep_session_$sessionId',
+        );
+      }
+    }
     await (db.delete(db.sessions)..where((s) => s.id.equals(sessionId))).go();
   }
 
-  Future<void> updateSegmentTime(int sessionId, DateTime start, DateTime end) async {
+  Future<void> updateSegmentTime(
+      int sessionId, DateTime start, DateTime end) async {
+    final session = await (db.select(db.sessions)
+          ..where((s) => s.id.equals(sessionId)))
+        .getSingleOrNull();
+    if (session == null) return;
     await (db.update(db.sessions)..where((s) => s.id.equals(sessionId))).write(
       SessionsCompanion(startTime: Value(start), endTime: Value(end)),
+    );
+    await _syncSleepSessionIfNeeded(
+      activityId: session.activityId,
+      start: start,
+      end: end,
+      sessionId: sessionId,
+    );
+  }
+
+  Future<void> _syncSleepSessionIfNeeded({
+    required int activityId,
+    required DateTime start,
+    required DateTime end,
+    required int sessionId,
+  }) async {
+    final activity = await (db.select(db.activities)
+          ..where((a) => a.id.equals(activityId)))
+        .getSingleOrNull();
+    if (activity == null) return;
+
+    if (activity.name.trim().toLowerCase() != 'sleep') return;
+
+    await healthSyncService.syncSleep(
+      start: start,
+      end: end,
+      clientRecordId: 'tempo_sleep_session_$sessionId',
     );
   }
 }
 
-final appControllerProvider = Provider((ref) => AppController(ref.watch(databaseProvider)));
+final appControllerProvider = Provider((ref) {
+  return AppController(
+    ref.watch(databaseProvider),
+    HealthSyncService(),
+  );
+});
