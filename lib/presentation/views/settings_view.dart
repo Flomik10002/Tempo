@@ -17,6 +17,7 @@ class SettingsView extends ConsumerStatefulWidget {
 
 class _SettingsViewState extends ConsumerState<SettingsView> {
   bool _isAuthorizingHealth = false;
+  bool _isSyncingHistory = false;
   String? _healthStatus;
 
   Future<void> _authorizeAppleHealth() async {
@@ -52,6 +53,41 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
             child: Text(
               'OK',
               style: TextStyle(color: dialogColor.resolveFrom(context)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _syncExistingSleep() async {
+    setState(() {
+      _isSyncingHistory = true;
+    });
+
+    final syncedCount =
+        await ref.read(appControllerProvider).syncExistingSleepSessions();
+    if (!mounted) return;
+
+    setState(() {
+      _isSyncingHistory = false;
+      _healthStatus = 'Synced sessions: $syncedCount';
+    });
+
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Sleep Sync Complete'),
+        content: Text('Synced sessions: $syncedCount'),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              'OK',
+              style: TextStyle(
+                color: CupertinoColors.systemGreen.resolveFrom(context),
+              ),
             ),
           ),
         ],
@@ -114,6 +150,25 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                     child: _isAuthorizingHealth
                         ? const CupertinoActivityIndicator()
                         : const Text('Connect'),
+                  ),
+                ],
+              ),
+            ),
+            const Gap(12),
+            AppContainer(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Sync Existing Sleep',
+                      style: TextStyle(fontSize: 17, color: labelColor)),
+                  CupertinoButton(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    onPressed: _isSyncingHistory ? null : _syncExistingSleep,
+                    child: _isSyncingHistory
+                        ? const CupertinoActivityIndicator()
+                        : const Text('Sync'),
                   ),
                 ],
               ),

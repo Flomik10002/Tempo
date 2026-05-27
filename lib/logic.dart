@@ -156,7 +156,10 @@ final tickerProvider = StreamProvider.autoDispose<int>((ref) {
 class AppController {
   final AppDatabase db;
   final HealthSyncService healthSyncService;
-  AppController(this.db, this.healthSyncService);
+  final SharedPreferences prefs;
+  static const _sleepActivityName = 'Sleep';
+  static const _syncedSleepSessionIdsKey = 'health_synced_sleep_session_ids';
+  AppController(this.db, this.healthSyncService, this.prefs);
 
   // Timer
   Future<void> toggleSession(int activityId) async {
@@ -275,7 +278,7 @@ class AppController {
       final activity = await (db.select(db.activities)
             ..where((a) => a.id.equals(session.activityId)))
           .getSingleOrNull();
-      if (activity != null && activity.name.trim().toLowerCase() == 'sleep') {
+      if (activity != null && _isSleepActivityName(activity.name)) {
         final end = session.endTime;
         if (end != null) {
           await healthSyncService.deleteSleepInRange(
@@ -283,6 +286,7 @@ class AppController {
             end: end,
           );
         }
+        await _unmarkSleepSessionSynced(sessionId);
       }
     }
     await (db.delete(db.sessions)..where((s) => s.id.equals(sessionId))).go();
@@ -298,14 +302,14 @@ class AppController {
     final activity = await (db.select(db.activities)
           ..where((a) => a.id.equals(session.activityId)))
         .getSingleOrNull();
-    final isSleep =
-        activity != null && activity.name.trim().toLowerCase() == 'sleep';
+    final isSleep = activity != null && _isSleepActivityName(activity.name);
 
     if (isSleep && session.endTime != null) {
       await healthSyncService.deleteSleepInRange(
         start: session.startTime,
         end: session.endTime!,
       );
+      await _unmarkSleepSessionSynced(sessionId);
     }
 
     await (db.update(db.sessions)..where((s) => s.id.equals(sessionId))).write(
@@ -313,11 +317,14 @@ class AppController {
     );
 
     if (isSleep) {
-      await healthSyncService.syncSleep(
+      final success = await healthSyncService.syncSleep(
         start: start,
         end: end,
         clientRecordId: 'tempo_sleep_session_$sessionId',
       );
+      if (success) {
+        await _markSleepSessionSynced(sessionId);
+      }
       return;
     }
 
@@ -340,13 +347,81 @@ class AppController {
         .getSingleOrNull();
     if (activity == null) return;
 
-    if (activity.name.trim().toLowerCase() != 'sleep') return;
+    if (!_isSleepActivityName(activity.name)) return;
 
-    await healthSyncService.syncSleep(
+    final success = await healthSyncService.syncSleep(
       start: start,
       end: end,
       clientRecordId: 'tempo_sleep_session_$sessionId',
     );
+    if (success) {
+      await _markSleepSessionSynced(sessionId);
+    }
+  }
+
+  Future<int> syncExistingSleepSessions() async {
+    final sleepActivities = await (db.select(db.activities)
+          ..where((a) => a.name.equals(_sleepActivityName)))
+        .get();
+    if (sleepActivities.isEmpty) return 0;
+
+    final sleepActivityIds = sleepActivities.map((e) => e.id).toList();
+    final completedSleepSessions = await (db.select(db.sessions)
+          ..where(
+            (s) => s.endTime.isNotNull() & s.activityId.isIn(sleepActivityIds),
+          ))
+        .get();
+
+    var syncedCount = 0;
+    final syncedIds = await _getSyncedSleepSessionIds();
+    for (final session in completedSleepSessions) {
+      final end = session.endTime;
+      if (end == null) continue;
+      if (syncedIds.contains(session.id)) continue;
+
+      final success = await healthSyncService.syncSleep(
+        start: session.startTime,
+        end: end,
+        clientRecordId: 'tempo_sleep_session_${session.id}',
+      );
+      if (success) {
+        syncedIds.add(session.id);
+        syncedCount += 1;
+      }
+    }
+
+    await _setSyncedSleepSessionIds(syncedIds);
+    return syncedCount;
+  }
+
+  bool _isSleepActivityName(String activityName) {
+    return activityName.trim() == _sleepActivityName;
+  }
+
+  Future<Set<int>> _getSyncedSleepSessionIds() async {
+    final raw = prefs.getStringList(_syncedSleepSessionIdsKey) ?? const [];
+    return raw.map(int.tryParse).whereType<int>().toSet();
+  }
+
+  Future<void> _setSyncedSleepSessionIds(Set<int> ids) async {
+    await prefs.setStringList(
+      _syncedSleepSessionIdsKey,
+      ids.map((id) => id.toString()).toList(),
+    );
+  }
+
+  Future<void> _markSleepSessionSynced(int sessionId) async {
+    final ids = await _getSyncedSleepSessionIds();
+    if (ids.add(sessionId)) {
+      await _setSyncedSleepSessionIds(ids);
+    }
+  }
+
+  Future<void> _unmarkSleepSessionSynced(int sessionId) async {
+    final ids = await _getSyncedSleepSessionIds();
+    if (ids.remove(sessionId)) {
+      await _setSyncedSleepSessionIds(ids);
+    }
   }
 }
 
@@ -354,5 +429,6 @@ final appControllerProvider = Provider((ref) {
   return AppController(
     ref.watch(databaseProvider),
     ref.watch(healthSyncServiceProvider),
+    ref.watch(sharedPreferencesProvider),
   );
 });

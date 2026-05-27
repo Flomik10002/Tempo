@@ -71,12 +71,12 @@ class HealthSyncService {
     }
   }
 
-  Future<void> deleteSleepInRange({
+  Future<bool> deleteSleepInRange({
     required DateTime start,
     required DateTime end,
   }) async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
-    if (!end.isAfter(start)) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return false;
+    if (!end.isAfter(start)) return false;
 
     try {
       await _ensureConfigured();
@@ -87,12 +87,12 @@ class HealthSyncService {
         [type],
         permissions: permissions,
       );
-      if (!authorized) return;
+      if (!authorized) return false;
       final hasWritePermission = await _health.hasPermissions(
         [type],
         permissions: permissions,
       );
-      if (hasWritePermission != true) return;
+      if (hasWritePermission != true) return false;
 
       final deleted = await _health.delete(
         type: type,
@@ -104,21 +104,20 @@ class HealthSyncService {
           'Health delete returned false for interval $start - $end',
         );
       }
+      return deleted;
     } catch (e) {
       debugPrint('Health delete failed: $e');
+      return false;
     }
   }
 
-  Future<void> syncSleep({
+  Future<bool> syncSleep({
     required DateTime start,
     required DateTime end,
     required String clientRecordId,
   }) async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
-    if (!end.isAfter(start)) return;
-
-    final minutes = end.difference(start).inMinutes;
-    if (minutes <= 0) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return false;
+    if (!end.isAfter(start)) return false;
 
     try {
       await _ensureConfigured();
@@ -129,15 +128,16 @@ class HealthSyncService {
         [type],
         permissions: permissions,
       );
-      if (!authorized) return;
+      if (!authorized) return false;
       final hasWritePermission = await _health.hasPermissions(
         [type],
         permissions: permissions,
       );
-      if (hasWritePermission != true) return;
+      if (hasWritePermission != true) return false;
 
       final success = await _health.writeHealthData(
-        value: minutes.toDouble(),
+        // For sleep categories value is aligned by plugin; any valid number works.
+        value: 1,
         type: type,
         startTime: start,
         endTime: end,
@@ -147,8 +147,10 @@ class HealthSyncService {
       if (!success) {
         debugPrint('Health write returned false for $clientRecordId');
       }
+      return success;
     } catch (e) {
       debugPrint('Health sync failed: $e');
+      return false;
     }
   }
 
